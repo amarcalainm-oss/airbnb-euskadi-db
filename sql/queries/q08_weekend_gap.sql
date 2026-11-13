@@ -1,0 +1,31 @@
+-- id: Q08
+-- author: Iker Elias
+-- title: Weekend vs weekday occupancy by municipality
+-- question: In which municipalities are Friday and Saturday nights much more booked than weekday nights over the coming weeks?
+-- why: A large weekend gap marks short-break destinations (city/beach getaways), while a small gap suggests longer holiday or business stays.
+-- techniques: CTE, scalar subquery, aggregate FILTER, EXTRACT(ISODOW), GROUP BY + HAVING, window function RANK()
+-- params: {"province": null, "horizon_days": 90, "min_listings": 30, "top_n": 15}
+WITH occ AS (
+    SELECT m.name AS municipality, p.name AS province,
+           COUNT(DISTINCT c.listing_id) AS listings,
+           AVG(CASE WHEN c.available THEN 0.0 ELSE 1.0 END)
+               FILTER (WHERE EXTRACT(ISODOW FROM c.day) IN (5, 6))     AS weekend_occ,   -- Fri & Sat nights
+           AVG(CASE WHEN c.available THEN 0.0 ELSE 1.0 END)
+               FILTER (WHERE EXTRACT(ISODOW FROM c.day) NOT IN (5, 6)) AS weekday_occ
+    FROM airbnb.calendar_day c
+    JOIN airbnb.listing      l ON l.listing_id      = c.listing_id
+    JOIN airbnb.municipality m ON m.municipality_id = l.municipality_id
+    JOIN airbnb.province     p ON p.province_id     = m.province_id
+    WHERE c.day < (SELECT MIN(day) FROM airbnb.calendar_day) + %(horizon_days)s
+      AND (%(province)s IS NULL OR p.name = %(province)s)
+    GROUP BY m.name, p.name
+    HAVING COUNT(DISTINCT c.listing_id) >= %(min_listings)s
+)
+SELECT RANK() OVER (ORDER BY weekend_occ - weekday_occ DESC) AS rank,
+       municipality, province, listings,
+       ROUND(100 * weekend_occ, 1)                   AS weekend_occ_pct,
+       ROUND(100 * weekday_occ, 1)                   AS weekday_occ_pct,
+       ROUND(100 * (weekend_occ - weekday_occ), 1)   AS gap_points
+FROM occ
+ORDER BY rank
+LIMIT %(top_n)s;
