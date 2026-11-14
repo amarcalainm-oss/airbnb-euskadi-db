@@ -1,4 +1,4 @@
-# AI adoption report (borrador - completar y revisar)
+# AI adoption report 
 
 The brief requires one row per task where AI was adopted. **Fill in the last column with what
 the team actually did to check each item.** Ideas are given in _italics_.
