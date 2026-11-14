@@ -49,9 +49,12 @@ ROOM_TYPES = ["Entire home/apt", "Private room", "Hotel room", "Shared room"]
 SERIES = ["#2a78d6", "#eb6834", "#1baf7a"]          # slots 1-3 de la paleta de referencia
 # Rampa secuencial azul (un solo tono, claro -> oscuro) para los quintiles de precio del mapa
 PRICE_RAMP = ["#86b6ef", "#5598e7", "#2a78d6", "#1c5cab", "#104281"]
-PROVINCE_COLOR = {"Guipúzcoa": SERIES[0], "Vizcaya": SERIES[1], "Álava": SERIES[2]}
 # Tinta pizarra, gris de texto, reglas y superficie blanca de los paneles
 INK, INK_2, INK_3, GRID, PANEL = "#142430", "#52606a", "#87939a", "#e1e6e4", "#ffffff"
+# Provincias con los colores de la ikurriña: rojo, verde y blanco. El blanco no se ve sobre el
+# fondo blanco de los gráficos, así que Álava lleva siempre un contorno en tinta pizarra.
+PROVINCE_COLOR = {"Vizcaya": "#d52b1e", "Guipúzcoa": "#009b48", "Álava": "#ffffff"}
+WHITE_PROVINCE = "Álava"
 SANS = "'Schibsted Grotesk', 'Segoe UI', Helvetica, Arial, sans-serif"
 
 TEMPLATE = go.layout.Template(layout=dict(
@@ -76,6 +79,10 @@ def style(fig, height=420):
     fig.update_layout(template=TEMPLATE, height=height, legend_title_text="")
     fig.update_traces(selector=dict(type="bar"), marker_line_color=PANEL, marker_line_width=2)
     fig.update_traces(selector=dict(type="scatter", mode="lines"), line_width=2)
+    # Álava (blanco): barras y puntos blancos con borde pizarra; su línea se dibuja en pizarra
+    fig.update_traces(selector=dict(type="bar", name=WHITE_PROVINCE), marker_line_color=INK, marker_line_width=1.2)
+    fig.update_traces(selector=dict(type="scatter", name=WHITE_PROVINCE), line_color=INK,
+                      marker=dict(color=PROVINCE_COLOR[WHITE_PROVINCE], line=dict(color=INK, width=1.5)))
     return fig
 
 
@@ -107,11 +114,14 @@ CSS = """
   /* ---------- barra lateral */
   [data-testid="stSidebar"] { border-right: 1px solid var(--slate-rule); }
   [data-testid="stSidebar"] .block-container, [data-testid="stSidebarContent"] { padding-top: 0.6rem; }
-  .brand { display: flex; align-items: center; gap: 0.7rem; margin: 0.2rem 0 1.9rem; }
-  .brand-mark { width: 34px; height: 34px; flex: none; }
-  .brand-name { font-family: var(--serif); font-size: 1.28rem; font-weight: 500; line-height: 1.1;
+  .brand { margin: 0.2rem 0 2rem; }
+  .brand-marks { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.85rem; }
+  .brand-mark { width: 52px; height: 52px; flex: none; }
+  .brand-flag { width: 66px; height: 37px; flex: none; border-radius: 3px;
+                box-shadow: 0 0 0 1px var(--slate-rule); }
+  .brand-name { font-family: var(--serif); font-size: 1.7rem; font-weight: 500; line-height: 1.1;
                 color: #fff; letter-spacing: -0.005em; }
-  .brand-sub { font-size: 0.78rem; color: var(--slate-ink-2); margin-top: 0.15rem; }
+  .brand-sub { font-size: 0.9rem; color: var(--slate-ink-2); margin-top: 0.25rem; }
   .side-h { font-size: 0.86rem; font-weight: 600; color: var(--slate-ink); margin: 0 0 0.5rem; }
   .side-note { font-size: 0.8rem; line-height: 1.45; color: var(--slate-ink-2); margin: 0.3rem 0 1.6rem; }
   .side-rule { height: 1px; background: var(--slate-rule); margin: 1.4rem 0 1.3rem; }
@@ -119,7 +129,8 @@ CSS = """
   .key li { display: flex; align-items: center; gap: 0.6rem; font-size: 0.88rem; color: var(--slate-ink);
             padding: 0.28rem 0; transition: opacity .2s var(--ease); }
   .key li.dim { opacity: 0.38; }
-  .key i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  .key i { width: 10px; height: 10px; border-radius: 3px; display: inline-block;
+           box-shadow: 0 0 0 1px rgba(255,255,255,0.35); }
   [data-testid="stSidebar"] label p { font-size: 0.82rem !important; color: var(--slate-ink-2) !important; }
 
   /* ---------- cabecera */
@@ -342,11 +353,12 @@ def province_layers(selected):
     layers = []
     for name, shape in province_shapes().items():
         color = PROVINCE_COLOR.get(name, INK_3)
+        border = INK if name == WHITE_PROVINCE else color   # el borde blanco no se vería sobre el mapa
         strong = selected is None or selected == name
         layers.append(dict(sourcetype="geojson", source=shape, type="fill", below="traces",
                            color=color, opacity=0.13 if strong else 0.04))
         layers.append(dict(sourcetype="geojson", source=shape, type="line", below="traces",
-                           color=color, opacity=0.45 if strong else 0.15, line=dict(width=0.7)))
+                           color=border, opacity=0.45 if strong else 0.15, line=dict(width=0.7)))
     return layers
 
 
@@ -368,16 +380,32 @@ def rename_series(fig, names: dict):
 
 
 # ------------------------------------------------------------ barra lateral
-# Marca: tres franjas que evocan las tres provincias, en sus colores de los gráficos
+# Marca: símbolo de Airbnb (recoloreado con el azul de la barra lateral) + ikurriña con sus colores
+# reales. Ambos dibujados en SVG: no hay ficheros de imagen que cargar.
+BRAND_BLUE = "#8cbbe0"
 BRAND = f"""
 <div class='brand'>
-  <svg class='brand-mark' viewBox='0 0 34 34' aria-hidden='true'>
-    <rect width='34' height='34' rx='9' fill='#1f3444'/>
-    <rect x='8' y='9' width='18' height='3.4' rx='1.7' fill='{SERIES[0]}'/>
-    <rect x='8' y='15.3' width='13' height='3.4' rx='1.7' fill='{SERIES[1]}'/>
-    <rect x='8' y='21.6' width='8' height='3.4' rx='1.7' fill='{SERIES[2]}'/>
-  </svg>
-  <div><div class='brand-name'>Airbnb Euskadi</div><div class='brand-sub'>Database analysis</div></div>
+  <div class='brand-marks'>
+    <svg class='brand-mark' viewBox='0 0 52 52' role='img' aria-label='Airbnb'>
+      <rect width='52' height='52' rx='12' fill='#1f3444'/>
+      <g transform='translate(10 9) scale(1.0)' fill='none' stroke='{BRAND_BLUE}' stroke-width='2.6'
+         stroke-linejoin='round' stroke-linecap='round'>
+        <path d='M16 25 C12.4 29.3 10.1 30.3 7.8 30.3 C5.1 30.3 3.2 28.2 3.2 25.6 C3.2 24.5 3.5 23.6 4.1 22.4
+                 L12.5 5.4 C13.4 3.6 14.5 2.6 16 2.6 C17.5 2.6 18.6 3.6 19.5 5.4 L27.9 22.4
+                 C28.5 23.6 28.8 24.5 28.8 25.6 C28.8 28.2 26.9 30.3 24.2 30.3 C21.9 30.3 19.6 29.3 16 25 Z'/>
+        <path d='M16 25 C13.1 21.5 11.8 19 11.8 16.9 C11.8 14.4 13.6 12.8 16 12.8 C18.4 12.8 20.2 14.4 20.2 16.9
+                 C20.2 19 18.9 21.5 16 25 Z'/>
+      </g>
+    </svg>
+    <svg class='brand-flag' viewBox='0 0 50 28' role='img' aria-label='Ikurriña, flag of Euskadi'>
+      <rect width='50' height='28' fill='#d52b1e'/>
+      <path d='M0 0 L50 28 M50 0 L0 28' stroke='#009b48' stroke-width='4.3'/>
+      <rect x='22.85' width='4.3' height='28' fill='#ffffff'/>
+      <rect y='11.85' width='50' height='4.3' fill='#ffffff'/>
+    </svg>
+  </div>
+  <div class='brand-name'>Airbnb Euskadi</div>
+  <div class='brand-sub'>Database analysis</div>
 </div>"""
 st.sidebar.markdown(BRAND, unsafe_allow_html=True)
 
@@ -466,7 +494,8 @@ with tab_map:
             for name, (lat, lon) in PROVINCE_LABEL_AT.items():
                 fig.add_trace(go.Scattermap(lat=[lat], lon=[lon], mode="text", text=[name],
                                             hoverinfo="skip", showlegend=False,
-                                            textfont=dict(size=15, color=PROVINCE_COLOR[name], family="Open Sans Bold")))
+                                            textfont=dict(size=15, family="Open Sans Bold",
+                                                          color=INK if name == WHITE_PROVINCE else PROVINCE_COLOR[name])))
             fig.update_layout(template=TEMPLATE, height=640, margin=dict(l=0, r=0, t=40, b=0),
                               legend_title_text="Price per night",
                               map=dict(layers=province_layers(P), style="carto-positron"))
@@ -522,7 +551,7 @@ with tab_demand:
                           labels={"pct_unavailable": "Unavailable listing-days (%)", "month": ""})
             fig.update_traces(marker_size=8, line_width=2)
             fig.update_layout(hovermode="x unified")
-            plot(style(fig))
+            plot(style(fig))   # style() da a Álava puntos blancos con borde y línea pizarra
 
     with panel("Q08", "Weekend versus weekday occupancy"):
         c1, c2, c3 = st.columns(3)
