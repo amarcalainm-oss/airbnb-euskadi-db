@@ -6,8 +6,6 @@
 -- techniques: CTE, scalar subquery, aggregate FILTER, EXTRACT(ISODOW), GROUP BY + HAVING, window function RANK()
 -- params: {"province": null, "horizon_days": 90, "min_listings": 30, "top_n": 15}
 WITH nights AS (
-    -- Step 1: calendar nights inside the horizon, each one marked as weekend or not and booked or not.
-    -- The scalar subquery finds the first calendar day; ISODOW 5 and 6 are Friday and Saturday.
     SELECT m.name AS municipality, p.name AS province, c.listing_id,
            EXTRACT(ISODOW FROM c.day) IN (5, 6) AS is_weekend,
            NOT c.available                      AS is_booked
@@ -19,7 +17,6 @@ WITH nights AS (
       AND (%(province)s IS NULL OR p.name = %(province)s)
 ),
 occ AS (
-    -- Step 2: per municipality, percent of weekend nights booked and of other nights booked
     SELECT municipality, province,
            COUNT(DISTINCT listing_id) AS listings,
            100.0 * COUNT(*) FILTER (WHERE is_weekend AND is_booked)
@@ -30,7 +27,6 @@ occ AS (
     GROUP BY municipality, province
     HAVING COUNT(DISTINCT listing_id) >= %(min_listings)s
 )
--- Step 3: rank the municipalities by the gap between both percentages
 SELECT RANK() OVER (ORDER BY weekend_occ - weekday_occ DESC) AS rank,
        municipality, province, listings,
        ROUND(weekend_occ, 1)               AS weekend_occ_pct,

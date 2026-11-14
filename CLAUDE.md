@@ -27,8 +27,9 @@ Team: Aitor Marcalain, Iker Elias. Step-by-step guide (Spanish): `docs/PASOS.md`
 ## Conventions
 
 - Python 3.14, standard library + psycopg2, python-dotenv, streamlit, plotly, pandas.
-- Comments and docstrings in Spanish (the team learns from them); query headers and app UI in
-  English (they go into the English report).
+- Comment only when strictly necessary, in one short line. No instructions for the user inside
+  code, no banner/separator comments (`-- ====`, `# ----`). Explanations go in `docs/PASOS.md`.
+- Query headers and app UI in English (they go into the English report).
 - No emojis anywhere (code, UI, docs). Formal, sober UI.
 - Chart colors: fixed categorical palette, each province always the same color; single-hue
   ramp for magnitudes; one axis per chart.

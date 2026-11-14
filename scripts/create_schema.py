@@ -1,7 +1,3 @@
-"""
-Paso 4 - Crea (o recrea desde cero) las tablas ejecutando sql/schema.sql.
-Ojo: borra el esquema 'airbnb' y todos sus datos.
-"""
 from db import SQL_DIR, get_connection, run_sql_file
 
 conn = get_connection()

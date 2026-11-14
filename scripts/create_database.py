@@ -1,15 +1,9 @@
-"""
-Paso 0 - Crea la base de datos vacía (si no existe).
-
-CREATE DATABASE no puede ejecutarse dentro de una transacción, por eso aquí se
-usa autocommit y nos conectamos a la base de datos de sistema 'postgres'.
-"""
 from psycopg2 import sql
 
 from db import DB_NAME, get_connection
 
 conn = get_connection("postgres")
-conn.autocommit = True
+conn.autocommit = True  # CREATE DATABASE no admite transacción
 with conn.cursor() as cur:
     cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (DB_NAME,))
     if cur.fetchone():

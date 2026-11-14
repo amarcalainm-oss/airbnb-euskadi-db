@@ -1,7 +1,3 @@
--- Perfilado 4: rangos y formatos de fechas y números.
--- Primero comprobamos con expresiones regulares (~) que el texto TIENE el formato
--- esperado; solo entonces lo convertimos (::date, ::numeric) para ver min/max.
-
 -- @query Formato y rango de las fechas
 SELECT 'listings.last_scraped' AS columna,
        COUNT(*) FILTER (WHERE last_scraped !~ '^\d{4}-\d{2}-\d{2}$') AS mal_formato,

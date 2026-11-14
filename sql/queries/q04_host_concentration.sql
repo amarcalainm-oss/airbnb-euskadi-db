@@ -9,7 +9,6 @@ SELECT h.host_id,
        h.name                              AS host,
        h.is_superhost,
        COUNT(*)                            AS listings,
-       -- scalar subquery: total listings in the filter, to turn the count into a share
        ROUND(100.0 * COUNT(*) / (SELECT COUNT(*)
                                  FROM airbnb.listing l2
                                  JOIN airbnb.municipality m2 ON m2.municipality_id = l2.municipality_id

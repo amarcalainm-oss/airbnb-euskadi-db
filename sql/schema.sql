@@ -1,45 +1,18 @@
--- =====================================================================
---  Esquema físico - Airbnb Euskadi (Inside Airbnb, scrape 25-09-2026)
---  Se ejecuta ANTES de la carga. La carga (scripts/etl.py) solo inserta filas.
---
---  Modelo (ver docs/modelo.md):
---    province 1──N municipality 1──N listing N──1 host
---    listing N──1 property_type
---    listing N──M amenity        (tabla puente listing_amenity)
---    listing 1──N calendar_day   (entidad débil: PK = listing + fecha)
---    listing N──M review         (tabla puente listing_review, ver nota)
---    reviewer 1──N review
--- =====================================================================
-
 DROP SCHEMA IF EXISTS airbnb CASCADE;
 CREATE SCHEMA airbnb;
 SET search_path TO airbnb;
 
--- ---------------------------------------------------------------------
--- PROVINCE: las 3 provincias (neighbourhood_group). Tabla de 3 filas,
--- pero evita repetir el texto en 255 municipios y garantiza que no haya
--- variantes mal escritas ('GuipÃºzcoa' vs 'Guipúzcoa').
--- ---------------------------------------------------------------------
 CREATE TABLE province (
     province_id   SMALLINT     GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name          VARCHAR(50)  NOT NULL UNIQUE
 );
 
--- ---------------------------------------------------------------------
--- MUNICIPALITY: los 255 municipios de neighbourhoods.csv.
--- El nombre es único en el fichero (comprobado en el perfilado) => UNIQUE.
--- ---------------------------------------------------------------------
 CREATE TABLE municipality (
     municipality_id  INTEGER      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name             VARCHAR(150) NOT NULL UNIQUE,
     province_id      SMALLINT     NOT NULL REFERENCES province(province_id)
 );
 
--- ---------------------------------------------------------------------
--- HOST: anfitriones. En listings.csv cada host_id tiene SIEMPRE los mismos
--- atributos (dependencia funcional comprobada) => se normaliza aquí (3FN).
--- Las fechas host_since, response_rate... vienen 100% vacías: no se crean.
--- ---------------------------------------------------------------------
 CREATE TABLE host (
     host_id               BIGINT       PRIMARY KEY,
     host_profile_id       BIGINT       NOT NULL UNIQUE,
@@ -49,26 +22,17 @@ CREATE TABLE host (
     is_superhost          BOOLEAN      NOT NULL,
     has_profile_pic       BOOLEAN      NOT NULL,
     identity_verified     BOOLEAN      NOT NULL,
-    listings_count        INTEGER      NOT NULL CHECK (listings_count >= 0),  -- en TODO Airbnb, no solo Euskadi
+    listings_count        INTEGER      NOT NULL CHECK (listings_count >= 0),  -- en todo Airbnb, no solo Euskadi
     months_as_host        SMALLINT     NOT NULL CHECK (months_as_host >= 0),
     months_as_user        SMALLINT     NOT NULL CHECK (months_as_user >= 0),
     CHECK (months_as_host <= months_as_user)
 );
 
--- ---------------------------------------------------------------------
--- PROPERTY_TYPE: 64 tipos de alojamiento ('Entire condo', 'Room in hotel'...)
--- ---------------------------------------------------------------------
 CREATE TABLE property_type (
     property_type_id  SMALLINT     GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name              VARCHAR(60)  NOT NULL UNIQUE
 );
 
--- ---------------------------------------------------------------------
--- LISTING: el anuncio. Columnas derivables de otras tablas NO se guardan
--- (number_of_reviews, first/last_review, reviews_per_month,
---  calculated_host_listings_count*, availability_*, *_minimum_nights...):
--- se calculan con SQL cuando hacen falta. Ver docs/modelo.md.
--- ---------------------------------------------------------------------
 CREATE TABLE listing (
     listing_id         BIGINT        PRIMARY KEY,
     host_id            BIGINT        NOT NULL REFERENCES host(host_id),
@@ -76,17 +40,17 @@ CREATE TABLE listing (
     property_type_id   SMALLINT      NOT NULL REFERENCES property_type(property_type_id),
     name               VARCHAR(100)  NOT NULL,
     description        TEXT,
-    latitude           NUMERIC(8,6)  NOT NULL CHECK (latitude  BETWEEN 42.0 AND 44.0),   -- caja de Euskadi
+    latitude           NUMERIC(8,6)  NOT NULL CHECK (latitude  BETWEEN 42.0 AND 44.0),   -- límites de Euskadi
     longitude          NUMERIC(9,6)  NOT NULL CHECK (longitude BETWEEN -4.0 AND -1.0),
     room_type          VARCHAR(20)   NOT NULL
                        CHECK (room_type IN ('Entire home/apt', 'Private room', 'Hotel room', 'Shared room')),
     accommodates       SMALLINT      NOT NULL CHECK (accommodates > 0),
-    bathrooms          NUMERIC(3,1)  CHECK (bathrooms >= 0),          -- extraído de bathrooms_text
-    bathroom_shared    BOOLEAN,                                        -- extraído de bathrooms_text
-    bathrooms_text     VARCHAR(30),                                    -- texto original
+    bathrooms          NUMERIC(3,1)  CHECK (bathrooms >= 0),
+    bathroom_shared    BOOLEAN,
+    bathrooms_text     VARCHAR(30),
     bedrooms           SMALLINT      CHECK (bedrooms >= 0),
     beds               SMALLINT      CHECK (beds >= 0),
-    price              NUMERIC(10,2) CHECK (price > 0),                -- precio por noche (EUR, el CSV usa '$')
+    price              NUMERIC(10,2) CHECK (price > 0),                -- EUR por noche
     minimum_nights     INTEGER       CHECK (minimum_nights > 0),
     maximum_nights     INTEGER       CHECK (maximum_nights > 0),
     has_availability   BOOLEAN,
@@ -105,10 +69,6 @@ CREATE TABLE listing (
     CHECK (minimum_nights <= maximum_nights)
 );
 
--- ---------------------------------------------------------------------
--- AMENITY + LISTING_AMENITY: en el CSV los servicios vienen como una lista
--- JSON dentro de una sola celda (viola la 1FN). Se separan en una relación N:M.
--- ---------------------------------------------------------------------
 CREATE TABLE amenity (
     amenity_id   INTEGER      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name         VARCHAR(150) NOT NULL UNIQUE
@@ -120,10 +80,6 @@ CREATE TABLE listing_amenity (
     PRIMARY KEY (listing_id, amenity_id)
 );
 
--- ---------------------------------------------------------------------
--- CALENDAR_DAY: entidad débil de LISTING (un registro por anuncio y día,
--- 365 días desde el scrape). Es la tabla grande: ~2,28 millones de filas.
--- ---------------------------------------------------------------------
 CREATE TABLE calendar_day (
     listing_id      BIGINT   NOT NULL REFERENCES listing(listing_id) ON DELETE CASCADE,
     day             DATE     NOT NULL,
@@ -134,14 +90,6 @@ CREATE TABLE calendar_day (
     CHECK (minimum_nights <= maximum_nights)
 );
 
--- ---------------------------------------------------------------------
--- REVIEWER, REVIEW, LISTING_REVIEW
--- Excepción justificada: en reviews.csv el mismo review id aparece en
--- varios anuncios (8.074 ids, siempre del mismo anfitrión, con fecha,
--- autor y texto idénticos). Es UNA reseña que Airbnb muestra en varios
--- anuncios agrupados. Por eso la reseña se guarda una vez (review) y la
--- relación con los anuncios es N:M (listing_review).
--- ---------------------------------------------------------------------
 CREATE TABLE reviewer (
     reviewer_id   BIGINT       PRIMARY KEY,
     name          VARCHAR(60)  NOT NULL
@@ -154,16 +102,13 @@ CREATE TABLE review (
     comments      TEXT     NOT NULL
 );
 
+-- Una reseña puede mostrarse en varios anuncios
 CREATE TABLE listing_review (
     listing_id    BIGINT   NOT NULL REFERENCES listing(listing_id) ON DELETE CASCADE,
     review_id     BIGINT   NOT NULL REFERENCES review(review_id),
     PRIMARY KEY (listing_id, review_id)
 );
 
--- ---------------------------------------------------------------------
--- Índices sobre claves foráneas (PostgreSQL NO los crea automáticamente).
--- Las PK y UNIQUE ya llevan índice propio.
--- ---------------------------------------------------------------------
 CREATE INDEX idx_municipality_province  ON municipality(province_id);
 CREATE INDEX idx_listing_host           ON listing(host_id);
 CREATE INDEX idx_listing_municipality   ON listing(municipality_id);

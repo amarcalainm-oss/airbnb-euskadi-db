@@ -6,8 +6,6 @@
 -- techniques: CTE chain, generate_series to fill months with no reviews, COUNT(DISTINCT), window function LAG(..., 12)
 -- params: {"province": null, "year_from": 2016}
 WITH monthly AS (
-    -- Step 1: reviews per month.
-    -- COUNT(DISTINCT) because one review can be linked to several listings of the same host.
     SELECT date_trunc('month', r.review_date)::date AS month,
            COUNT(DISTINCT r.review_id)              AS reviews
     FROM airbnb.review r
@@ -19,19 +17,15 @@ WITH monthly AS (
     GROUP BY 1
 ),
 all_months AS (
-    -- Step 2: every month from the first to the last one. A month with no reviews gets 0,
-    -- so that "12 rows before" in step 3 really is the same month of the previous year.
     SELECT gs::date AS month, COALESCE(mo.reviews, 0) AS reviews
     FROM generate_series((SELECT MIN(month) FROM monthly),
                          (SELECT MAX(month) FROM monthly), INTERVAL '1 month') gs
     LEFT JOIN monthly mo ON mo.month = gs::date
 ),
 with_last_year AS (
-    -- Step 3: next to each month, the value of the same month one year before
     SELECT month, reviews, LAG(reviews, 12) OVER (ORDER BY month) AS reviews_last_year
     FROM all_months
 )
--- Step 4: year-over-year change in percent (NULLIF avoids dividing by zero)
 SELECT month, reviews, reviews_last_year,
        ROUND(100.0 * (reviews - reviews_last_year) / NULLIF(reviews_last_year, 0), 1) AS yoy_change_pct
 FROM with_last_year

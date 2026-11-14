@@ -1,17 +1,3 @@
-"""
-Paso 1 - Descarga de los datos en bruto (raw data).
-
-El enunciado exige que los datos NO se suban a git, sino que se descarguen con
-un script. Este script baja los ficheros de Inside Airbnb (Euskadi, scrape del
-25-09-2026) a la carpeta data/raw/ y descomprime los .gz.
-
-Fuente : https://insideairbnb.com/get-the-data/  (sección "Euskadi")
-Licencia: Creative Commons Attribution 4.0 International (CC BY 4.0)
-
-Uso:
-    python scripts/download_data.py           # descarga lo que falte
-    python scripts/download_data.py --force   # vuelve a descargarlo todo
-"""
 import gzip
 import shutil
 import sys
@@ -20,16 +6,14 @@ from pathlib import Path
 
 BASE_URL = "https://data.insideairbnb.com/spain/pv/euskadi/2026-09-25"
 
-# (ruta remota, nombre local). Los .gz se descomprimen al bajarlos.
 FILES = [
-    ("data/listings.csv.gz", "listings.csv"),        # anuncios, versión detallada (79 columnas)
-    ("data/calendar.csv.gz", "calendar.csv"),        # disponibilidad diaria de cada anuncio (365 días)
-    ("data/reviews.csv.gz", "reviews.csv"),          # reseñas con texto completo
-    ("visualisations/neighbourhoods.csv", "neighbourhoods.csv"),  # municipios y provincias
-    ("visualisations/neighbourhoods.geojson", "neighbourhoods.geojson"),  # fronteras de municipios (mapa de la app)
+    ("data/listings.csv.gz", "listings.csv"),
+    ("data/calendar.csv.gz", "calendar.csv"),
+    ("data/reviews.csv.gz", "reviews.csv"),
+    ("visualisations/neighbourhoods.csv", "neighbourhoods.csv"),
+    ("visualisations/neighbourhoods.geojson", "neighbourhoods.geojson"),
 ]
 
-# No se importa db.py: este paso no necesita psycopg2 ni .env
 ROOT = Path(__file__).resolve().parent.parent
 RAW_DIR = ROOT / "data" / "raw"
 

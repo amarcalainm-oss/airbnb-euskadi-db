@@ -1,5 +1,4 @@
 [theme]
-# Paleta "Cantábrico": niebla fría de fondo, pizarra para el texto y azul de mar como acento
 base = "light"
 primaryColor = "#1d5a85"
 backgroundColor = "#eef1ef"
@@ -10,7 +9,6 @@ baseRadius = "8px"
 font = "sans serif"
 
 [theme.sidebar]
-# Barra lateral en pizarra oscura: separa claramente los controles del contenido
 backgroundColor = "#142430"
 secondaryBackgroundColor = "#1f3444"
 textColor = "#e4eaec"

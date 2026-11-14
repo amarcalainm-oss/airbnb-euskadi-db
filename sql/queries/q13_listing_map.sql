@@ -7,12 +7,10 @@
 -- params: {"province": null, "room_type": null, "min_reviews": 0}
 SELECT q.listing_id, q.listing, q.municipality, q.room_type, q.price, q.score_rating,
        q.latitude, q.longitude, q.price_quintile,
-       -- Step 2: legend label of each fifth with its cheapest and dearest price, e.g. "Q1: 14.77 - 101.50 EUR"
        'Q' || q.price_quintile || ': ' ||
        MIN(q.price) OVER (PARTITION BY q.price_quintile) || ' - ' ||
        MAX(q.price) OVER (PARTITION BY q.price_quintile) || ' EUR'      AS price_band
 FROM (
-    -- Step 1: listings in the filter, split into 5 groups of equal size from cheapest (1) to dearest (5)
     SELECT l.listing_id, l.name AS listing, m.name AS municipality, l.room_type, l.price,
            l.score_rating, l.latitude, l.longitude,
            NTILE(5) OVER (ORDER BY l.price) AS price_quintile

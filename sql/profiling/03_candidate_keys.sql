@@ -1,6 +1,3 @@
--- Perfilado 3: claves candidatas. ¿Son realmente únicas?
--- Una columna (o combinación) es clave si total = distintos y no tiene nulos.
-
 -- @query Unicidad de claves candidatas
 SELECT 'listings.id' AS clave_candidata, COUNT(*) AS total, COUNT(DISTINCT id) AS distintos,
        COUNT(*) - COUNT(id) AS nulos FROM staging.listings
@@ -20,7 +17,6 @@ SELECT 'hosts: listings.host_id (distintos)', COUNT(*), COUNT(DISTINCT host_id),
        COUNT(*) - COUNT(host_id) FROM staging.listings;
 
 -- @query reviews.id repetidos: ¿en qué columnas difieren las copias?
--- Si la misma reseña (id) aparece varias veces, miramos si cambia algo más que el anuncio.
 SELECT COUNT(*)                                        AS ids_repetidos,
        SUM(n_filas)                                    AS filas_implicadas,
        COUNT(*) FILTER (WHERE n_fechas > 1)            AS con_fecha_distinta,
@@ -54,7 +50,6 @@ FROM (
 ) x;
 
 -- @query Dependencia funcional host_id -> atributos del anfitrión
--- Si cada host_id tiene siempre los mismos datos, se pueden sacar a una tabla HOST sin perder nada.
 SELECT COUNT(*) AS hosts,
        COUNT(*) FILTER (WHERE n_variantes > 1) AS hosts_con_datos_inconsistentes
 FROM (

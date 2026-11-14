@@ -1,36 +1,9 @@
-"""
-Paso 8 - Capa de visualización (Streamlit).
-
-Arranque:   streamlit run app/app.py
-
-Reglas del enunciado que respeta:
-  * Cada gráfico sale de una de las consultas de sql/queries/ (escritas a mano).
-  * Los filtros del usuario se envían a PostgreSQL como PARÁMETROS
-    (cursor.execute(sql, params)), nunca concatenados al SQL -> sin inyección.
-  * Python NO agrega, filtra ni transforma resultados: solo mete las filas
-    devueltas en un DataFrame (como contenedor) y se las pasa al gráfico.
-  * El usuario nunca escribe SQL; los controles solo permiten valores válidos
-    y cualquier error de base de datos se muestra como mensaje, sin romper la app.
-
-Diseño visual (paleta "Cantábrico"):
-  * Fondo de niebla fría, barra lateral de pizarra oscura y azul de mar como acento.
-    Los colores base viven en .streamlit/config.toml; aquí solo se afina con CSS.
-  * Tipografía: Newsreader (serifa) para la frase resumen y los títulos,
-    Schibsted Grotesk para la interfaz, las cifras y los gráficos.
-  * Cada consulta vive en su propio panel blanco: título, pregunta, controles,
-    gráfico y, plegado, el SQL que lo produce.
-
-Diseño de los gráficos (skill "dataviz"):
-  * Paleta categórica fija: azul, naranja, aqua. Cada provincia tiene SIEMPRE el
-    mismo color, aunque un filtro oculte las otras (el color sigue a la entidad).
-  * Una sola serie -> un solo color, sin leyenda. Rejilla y ejes discretos.
-"""
 import json
 import sys
 from contextlib import contextmanager
 from pathlib import Path
 
-import pandas as pd          # SOLO como contenedor de filas para mostrar/graficar
+import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import psycopg2
@@ -45,21 +18,16 @@ st.set_page_config(page_title="Airbnb Euskadi - Database analysis", layout="wide
 QUERIES = load_queries()
 ROOM_TYPES = ["Entire home/apt", "Private room", "Hotel room", "Shared room"]
 
-# ------------------------------------------------------------ estilo gráfico
-SERIES = ["#2a78d6", "#eb6834", "#1baf7a"]          # slots 1-3 de la paleta de referencia
-# Rampa secuencial azul (un solo tono, claro -> oscuro) para los quintiles de precio del mapa
+SERIES = ["#2a78d6", "#eb6834", "#1baf7a"]
 PRICE_RAMP = ["#86b6ef", "#5598e7", "#2a78d6", "#1c5cab", "#104281"]
-# Tinta pizarra, gris de texto, reglas y superficie blanca de los paneles
 INK, INK_2, INK_3, GRID, PANEL = "#142430", "#52606a", "#87939a", "#e1e6e4", "#ffffff"
-# Provincias con los colores de la ikurriña: rojo, verde y blanco. El blanco no se ve sobre el
-# fondo blanco de los gráficos, así que Álava lleva siempre un contorno en tinta pizarra.
+# Álava es blanca: siempre lleva contorno pizarra para verse sobre blanco
 PROVINCE_COLOR = {"Vizcaya": "#d52b1e", "Guipúzcoa": "#009b48", "Álava": "#ffffff"}
 WHITE_PROVINCE = "Álava"
 SANS = "'Schibsted Grotesk', 'Segoe UI', Helvetica, Arial, sans-serif"
 
 TEMPLATE = go.layout.Template(layout=dict(
     font=dict(family=SANS, size=13, color=INK_2),
-    # Fondo blanco explícito, igual que el panel que lo contiene
     paper_bgcolor=PANEL, plot_bgcolor=PANEL,
     colorway=SERIES,
     margin=dict(l=4, r=8, t=40, b=4),
@@ -79,15 +47,12 @@ def style(fig, height=420):
     fig.update_layout(template=TEMPLATE, height=height, legend_title_text="")
     fig.update_traces(selector=dict(type="bar"), marker_line_color=PANEL, marker_line_width=2)
     fig.update_traces(selector=dict(type="scatter", mode="lines"), line_width=2)
-    # Álava (blanco): barras y puntos blancos con borde pizarra; su línea se dibuja en pizarra
     fig.update_traces(selector=dict(type="bar", name=WHITE_PROVINCE), marker_line_color=INK, marker_line_width=1.2)
     fig.update_traces(selector=dict(type="scatter", name=WHITE_PROVINCE), line_color=INK,
                       marker=dict(color=PROVINCE_COLOR[WHITE_PROVINCE], line=dict(color=INK, width=1.5)))
     return fig
 
 
-# Hoja de estilo. Selectores apoyados en data-testid y en las clases st-key-* que
-# Streamlit genera a partir del parámetro key, que son estables entre versiones.
 CSS = """
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap');
@@ -101,7 +66,6 @@ CSS = """
     --ease: cubic-bezier(.2, .7, .2, 1);
   }
 
-  /* ---------- base */
   html, body, .stApp, .stMarkdown, button, input, label, textarea, [data-baseweb] {
     font-family: var(--sans); }
   .stApp { color: var(--ink); }
@@ -111,7 +75,6 @@ CSS = """
   :focus-visible { outline: 2px solid var(--sea) !important; outline-offset: 2px; }
   ::selection { background: var(--sea-wash); }
 
-  /* ---------- barra lateral */
   [data-testid="stSidebar"] { border-right: 1px solid var(--slate-rule); }
   [data-testid="stSidebar"] .block-container, [data-testid="stSidebarContent"] { padding-top: 0.6rem; }
   .brand { margin: 0.2rem 0 2rem; }
@@ -133,7 +96,6 @@ CSS = """
            box-shadow: 0 0 0 1px rgba(255,255,255,0.35); }
   [data-testid="stSidebar"] label p { font-size: 0.82rem !important; color: var(--slate-ink-2) !important; }
 
-  /* ---------- cabecera */
   .masthead { padding: 0.4rem 0 0.2rem; }
   .kicker { display: flex; flex-wrap: wrap; gap: 0.5rem 1.2rem; align-items: center;
             font-size: 0.85rem; color: var(--ink-2); margin-bottom: 1.1rem; }
@@ -153,7 +115,6 @@ CSS = """
            animation: rise .7s .12s var(--ease) both; }
   @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
-  /* ---------- navegación por pestañas */
   .stTabs [data-baseweb="tab-list"] { gap: 0.25rem; border-bottom: 1px solid var(--rule);
                                       overflow-x: auto; scrollbar-width: none; }
   .stTabs [data-baseweb="tab"] { font-size: 0.93rem; font-weight: 500; color: var(--ink-2);
@@ -166,7 +127,6 @@ CSS = """
   .stTabs [data-baseweb="tab-panel"] { padding-top: 1.6rem; animation: fade .28s var(--ease) both; }
   @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 
-  /* ---------- paneles de consulta */
   [class*="st-key-panel_"] { background: var(--panel); border: 1px solid var(--rule-soft) !important;
                              border-radius: 14px; padding: 1.5rem 1.6rem 0.9rem !important;
                              box-shadow: 0 1px 0 rgba(20, 36, 48, 0.03), 0 12px 32px -24px rgba(20, 36, 48, 0.28);
@@ -183,15 +143,12 @@ CSS = """
             border-left: 2px solid var(--sea); padding: 0.1rem 0 0.1rem 0.9rem; margin: 0 0 1.2rem; }
   .q-note code { font-size: 0.86em; background: var(--sea-wash); color: var(--sea); padding: 0.05em 0.35em; border-radius: 4px; }
 
-  /* controles dentro de los paneles */
   [class*="st-key-panel_"] label p { font-size: 0.84rem !important; color: var(--ink-2) !important; font-weight: 500; }
   [data-testid="stSlider"] [role="slider"] { box-shadow: 0 0 0 4px rgba(29, 90, 133, 0.12); }
 
-  /* el tema de gráficos de Streamlit impone su fondo gris: aquí se deja transparente sobre el panel */
   [class*="st-key-panel_"] .js-plotly-plot .main-svg { background: transparent !important; }
   [class*="st-key-panel_"] .js-plotly-plot rect.bg { fill: transparent !important; }
 
-  /* SQL plegado al pie del panel */
   [data-testid="stExpander"] details { border: none !important; border-top: 1px solid var(--rule-soft) !important;
                                        border-radius: 0 !important; background: transparent; }
   [data-testid="stExpander"] summary { padding: 0.85rem 0 0.4rem !important; color: var(--ink-2); font-size: 0.86rem; }
@@ -200,7 +157,6 @@ CSS = """
   [data-testid="stExpanderDetails"] { padding: 0.4rem 0 0.8rem !important; }
   [data-testid="stCode"] pre, .stCode pre { border-radius: 10px !important; font-size: 0.82rem !important; }
 
-  /* tablas, avisos y botón */
   [data-testid="stDataFrame"] { border: 1px solid var(--rule-soft); border-radius: 10px; overflow: hidden; margin-top: 0.4rem; }
   [data-testid="stAlert"] { border-radius: 10px; }
   .stButton button[kind="primary"] { border-radius: 8px; padding: 0.55rem 1.3rem; font-weight: 600;
@@ -208,12 +164,10 @@ CSS = """
   .stButton button[kind="primary"]:hover { box-shadow: 0 6px 18px -8px rgba(29, 90, 133, 0.7); }
   .stButton button[kind="primary"]:active { transform: translateY(1px); }
 
-  /* ---------- pie */
   .footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.6rem 2rem;
             color: var(--ink-3); font-size: 0.8rem; margin-top: 2.6rem; border-top: 1px solid var(--rule);
             padding-top: 1rem; }
 
-  /* ---------- pantallas estrechas */
   @media (max-width: 760px) {
     .block-container { padding: 1.6rem 1rem 2rem; }
     [class*="st-key-panel_"] { padding: 1.1rem 1rem 0.6rem !important; border-radius: 12px; }
@@ -229,14 +183,13 @@ CSS = """
 st.markdown(CSS, unsafe_allow_html=True)
 
 
-# ------------------------------------------------------------------- datos
 @st.cache_resource
 def connection():
     return get_connection()
 
 
 def conn_ok():
-    """Reabre la conexión si se ha cerrado (p. ej. reinicio de PostgreSQL)."""
+    """Reabre la conexión si se ha cerrado."""
     c = connection()
     if c.closed:
         st.cache_resource.clear()
@@ -252,7 +205,6 @@ def fetch(qid: str, params: tuple) -> pd.DataFrame:
 
 @st.cache_data(ttl=3600)
 def lookup(sql: str) -> list:
-    """Listas para los desplegables (también salen de SQL)."""
     c = conn_ok()
     with c.cursor() as cur:
         cur.execute(sql)
@@ -262,8 +214,7 @@ def lookup(sql: str) -> list:
 
 
 def reset_conn():
-    """Tras un error, deshace la transacción abierta para que la conexión compartida no se quede
-    en estado 'transacción abortada' y las siguientes consultas puedan ejecutarse."""
+    """Deshace la transacción abortada para que la conexión siga siendo usable."""
     try:
         c = connection()
         if not c.closed:
@@ -273,7 +224,6 @@ def reset_conn():
 
 
 def show(qid: str, **params):
-    """Ejecuta la consulta qid con params y devuelve el DataFrame, o None si falla."""
     try:
         return fetch(qid, tuple(sorted(params.items())))
     except psycopg2.Error as e:
@@ -286,7 +236,6 @@ def show(qid: str, **params):
 
 
 def header(qid: str, title: str):
-    """Cabecera del panel: título, identificador de la consulta, pregunta y autor."""
     q = QUERIES[qid]
     st.markdown(f"<div class='q-head'><h3 class='q-title'>{title}</h3><span class='q-id'>{q['id']}</span></div>"
                 f"<p class='q-question'>{q['question']}</p>"
@@ -302,9 +251,7 @@ def sql_box(qid: str):
 
 @contextmanager
 def panel(qid: str, title: str):
-    """Panel de una consulta: cabecera arriba, contenido del bloque 'with' y SQL plegado al pie.
-    La key genera la clase CSS st-key-panel_<qid>, que da al panel su aspecto."""
-    with st.container(border=True, key=f"panel_{qid}"):
+    with st.container(border=True, key=f"panel_{qid}"):  # key -> clase CSS st-key-panel_<qid>
         header(qid, title)
         yield
         sql_box(qid)
@@ -321,7 +268,7 @@ def empty(df) -> bool:
 
 
 def fix_text(s):
-    """'Ã\x81lava' -> 'Álava': texto UTF-8 leído como Latin-1 (la misma limpieza que la regla R01 del ETL)."""
+    """Repara texto UTF-8 leído como Latin-1 (como la regla R01)."""
     try:
         return s.encode("latin-1").decode("utf-8")
     except (UnicodeEncodeError, UnicodeDecodeError, AttributeError):
@@ -330,9 +277,7 @@ def fix_text(s):
 
 @st.cache_data
 def province_shapes() -> dict:
-    """Fronteras de los municipios (neighbourhoods.geojson de Inside Airbnb) agrupadas por provincia,
-    solo para dibujarlas en el mapa. No se calcula ningún dato: se reparte el fichero tal cual.
-    Si el fichero no está descargado, devuelve {} y el mapa se dibuja sin zonas."""
+    """Fronteras de municipios agrupadas por provincia; {} si falta el fichero."""
     path = RAW_DIR / "neighbourhoods.geojson"
     if not path.exists():
         return {}
@@ -343,17 +288,14 @@ def province_shapes() -> dict:
     return shapes
 
 
-# Posición aproximada del nombre de cada provincia en el mapa (constantes de dibujo, no datos)
 PROVINCE_LABEL_AT = {"Vizcaya": (43.27, -2.93), "Guipúzcoa": (43.17, -2.17), "Álava": (42.80, -2.72)}
 
 
 def province_layers(selected):
-    """Capas del mapa: relleno suave y borde fino de cada provincia en su color fijo.
-    La provincia filtrada se resalta un poco más; las demás quedan casi transparentes."""
     layers = []
     for name, shape in province_shapes().items():
         color = PROVINCE_COLOR.get(name, INK_3)
-        border = INK if name == WHITE_PROVINCE else color   # el borde blanco no se vería sobre el mapa
+        border = INK if name == WHITE_PROVINCE else color
         strong = selected is None or selected == name
         layers.append(dict(sourcetype="geojson", source=shape, type="fill", below="traces",
                            color=color, opacity=0.13 if strong else 0.04))
@@ -367,7 +309,6 @@ def plot(fig):
 
 
 def plot_ranking(fig, n_rows: int):
-    """Barras horizontales: el mayor arriba, rejilla vertical y altura según el nº de filas."""
     style(fig, height=max(320, 28 * n_rows))
     fig.update_layout(xaxis=dict(showgrid=True, gridcolor=GRID),
                       yaxis=dict(showgrid=False, categoryorder="total ascending", tickfont=dict(color=INK_2)))
@@ -375,13 +316,9 @@ def plot_ranking(fig, n_rows: int):
 
 
 def rename_series(fig, names: dict):
-    """Sustituye el nombre de columna de cada serie por su etiqueta de leyenda."""
     fig.for_each_trace(lambda t: t.update(name=names[t.name]))
 
 
-# ------------------------------------------------------------ barra lateral
-# Marca: símbolo de Airbnb (recoloreado con el azul de la barra lateral) + ikurriña con sus colores
-# reales. Ambos dibujados en SVG: no hay ficheros de imagen que cargar.
 BRAND_BLUE = "#8cbbe0"
 BRAND = f"""
 <div class='brand'>
@@ -421,13 +358,12 @@ except Exception as e:  # noqa: BLE001
 st.sidebar.markdown("<div class='side-h'>Filters</div>", unsafe_allow_html=True)
 province = st.sidebar.selectbox("Province", ["All provinces"] + PROVINCES)
 room = st.sidebar.selectbox("Room type", ["All room types"] + ROOM_TYPES)
-# Parámetros de las consultas: None significa "sin filtro"
+# None = sin filtro
 P = None if province == "All provinces" else province
 R = None if room == "All room types" else room
 st.sidebar.markdown("<div class='side-note'>Filters are passed to PostgreSQL as bound query parameters. "
                     "Charts that do not depend on a filter ignore it.</div>", unsafe_allow_html=True)
 
-# Leyenda fija de provincias: la provincia no seleccionada se atenúa
 key_items = "".join(
     f"<li class='{'dim' if P and P != name else ''}'><i style='background:{PROVINCE_COLOR.get(name, INK_3)}'></i>{name}</li>"
     for name in PROVINCES)
@@ -436,7 +372,6 @@ st.sidebar.markdown(f"<div class='side-rule'></div><div class='side-h'>Province 
                     f"<div class='side-note'>Each province keeps its colour in every chart.</div>",
                     unsafe_allow_html=True)
 
-# ---------------------------------------------------------------- cabecera
 st.markdown("<div class='masthead'><div class='kicker'><span class='live'>Inside Airbnb snapshot</span>"
             "<span>25 September 2026</span><span>Álava, Guipúzcoa and Vizcaya</span></div>"
             "<h1 class='title'>Short-term rentals in the Basque Country</h1></div>", unsafe_allow_html=True)
@@ -460,7 +395,6 @@ try:
                     {"p": P, "r": R})
         n_list, n_hosts, med_price, n_rev = cur.fetchone()
     c.rollback()
-    # La frase resumen cambia con los filtros: todos sus números salen de la consulta anterior
     where = f" in {province}" if P else " in Euskadi"
     kind = f" ({room.lower()})" if R else ""
     price = f"<b>{med_price} EUR</b> per night" if med_price is not None else "no published price"
@@ -476,13 +410,12 @@ st.markdown("<div class='scope'>Every number and chart below is the result of a 
 tab_map, tab_prices, tab_demand, tab_hosts, tab_amenities, tab_guests, tab_simulation = st.tabs(
     ["Map", "Prices", "Demand", "Hosts", "Amenities and licences", "Guests", "Price simulation"])
 
-# --------------------------------------------------------------------- MAP
 with tab_map:
     with panel("Q13", "Location of listings by price quintile"):
         min_reviews = st.slider("Minimum number of reviews", 0, 100, 0, key="q13r")
         df = show("Q13", province=P, room_type=R, min_reviews=min_reviews)
         if not empty(df):
-            # Las filas llegan ordenadas por quintil, así que cada banda toma su tono de la rampa en orden
+            # Filas ordenadas por quintil: cada banda toma su tono en orden
             fig = px.scatter_map(df, lat="latitude", lon="longitude", color="price_band",
                                  color_discrete_sequence=PRICE_RAMP, hover_name="listing",
                                  hover_data={"municipality": True, "room_type": True, "price": True,
@@ -490,7 +423,6 @@ with tab_map:
                                              "price_band": False},
                                  zoom=8.2, center={"lat": 43.13, "lon": -2.55}, map_style="carto-positron")
             fig.update_traces(marker=dict(size=6, opacity=0.85))
-            # Nombre de cada provincia sobre su zona, en su color
             for name, (lat, lon) in PROVINCE_LABEL_AT.items():
                 fig.add_trace(go.Scattermap(lat=[lat], lon=[lon], mode="text", text=[name],
                                             hoverinfo="skip", showlegend=False,
@@ -503,7 +435,6 @@ with tab_map:
             if not province_shapes():
                 st.caption("Province areas are not shown: run scripts/download_data.py to fetch the boundaries.")
 
-# ------------------------------------------------------------------ PRICES
 with tab_prices:
     with panel("Q01", "Median nightly price by municipality"):
         c1, c2 = st.columns(2)
@@ -531,7 +462,6 @@ with tab_prices:
             plot(style(fig))
             st.dataframe(df, use_container_width=True, hide_index=True)
 
-# ------------------------------------------------------------------ DEMAND
 with tab_demand:
     with panel("Q03", "Reviews per month as a proxy for demand"):
         year_from = st.slider("From year", 2011, 2026, 2016, key="q03y")
@@ -551,7 +481,7 @@ with tab_demand:
                           labels={"pct_unavailable": "Unavailable listing-days (%)", "month": ""})
             fig.update_traces(marker_size=8, line_width=2)
             fig.update_layout(hovermode="x unified")
-            plot(style(fig))   # style() da a Álava puntos blancos con borde y línea pizarra
+            plot(style(fig))
 
     with panel("Q08", "Weekend versus weekday occupancy"):
         c1, c2, c3 = st.columns(3)
@@ -565,7 +495,6 @@ with tab_demand:
             rename_series(fig, {"weekend_occ_pct": "Friday and Saturday nights", "weekday_occ_pct": "Other nights"})
             plot(style(fig))
 
-# ------------------------------------------------------------------- HOSTS
 with tab_hosts:
     with panel("Q07", "Guest scores of superhosts and regular hosts"):
         c1, c2 = st.columns(2)
@@ -600,7 +529,6 @@ with tab_hosts:
         if not empty(df):
             st.dataframe(df, use_container_width=True, hide_index=True)
 
-# ------------------------------------------------- AMENITIES AND LICENCES
 with tab_amenities:
     with panel("Q06", "Price-per-guest premium associated with each amenity"):
         c1, c2 = st.columns(2)
@@ -625,7 +553,6 @@ with tab_amenities:
             rename_series(fig, {"registered": "Registered", "exempt": "Exempt", "no_license": "No licence shown"})
             plot(style(fig))
 
-# ------------------------------------------------------------------ GUESTS
 with tab_guests:
     with panel("Q10", "Number of reviews written per guest"):
         year_from = st.slider("Reviews written since", 2011, 2026, 2011, key="q10y")
@@ -638,7 +565,6 @@ with tab_guests:
             plot(style(fig, height=360))
             st.dataframe(df, use_container_width=True, hide_index=True)
 
-# ------------------------------------------------------- PRICE SIMULATION
 with tab_simulation:
     with panel("Q09", "Price change simulation for one municipality"):
         st.markdown("<div class='q-note'>The simulation runs a real <code>UPDATE</code> inside a transaction, "

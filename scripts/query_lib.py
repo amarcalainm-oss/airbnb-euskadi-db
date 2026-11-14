@@ -1,13 +1,3 @@
-"""
-Carga las consultas de sql/queries/*.sql y las ejecuta con parámetros.
-
-Lo usan tanto scripts/run_queries.py (para el informe) como la app de
-Streamlit. Así cada consulta está escrita UNA sola vez, a mano, en su .sql.
-
-Seguridad (inyección SQL): los valores del usuario NUNCA se pegan dentro del
-texto SQL. Se pasan aparte a cursor.execute(sql, params) y psycopg2 los
-escapa correctamente (%(nombre)s en el .sql).
-"""
 import json
 import re
 from pathlib import Path
@@ -17,7 +7,6 @@ META_RE = re.compile(r"^-- (\w+): (.*)$")
 
 
 def load_queries() -> dict[str, dict]:
-    """Devuelve {'Q01': {id, author, title, question, why, techniques, params, sql | steps, file}}."""
     out = {}
     for path in sorted(QUERIES_DIR.glob("q*.sql")):
         text = path.read_text(encoding="utf-8")
@@ -39,23 +28,20 @@ def load_queries() -> dict[str, dict]:
 
 
 def merge_params(q: dict, params: dict | None) -> dict:
-    """Parámetros por defecto de la consulta, sobrescritos por los recibidos."""
     return {**q["params"], **(params or {})}
 
 
 def run_query(conn, q: dict, params: dict | None = None):
-    """Ejecuta una consulta de lectura. Devuelve (nombres_columnas, filas)."""
     with conn.cursor() as cur:
         cur.execute(q["sql"], merge_params(q, params))
         cols = [d.name for d in cur.description]
         rows = cur.fetchall()
-    conn.rollback()  # cierra la transacción de lectura
+    conn.rollback()
     return cols, rows
 
 
 def run_transaction_query(conn, q: dict, params: dict | None = None, commit: bool = False):
-    """Q09: before -> UPDATE -> after dentro de UNA transacción.
-    Por defecto termina con ROLLBACK, así la base de datos no cambia."""
+    """before, UPDATE y after en una transacción; ROLLBACK salvo commit=True."""
     p = merge_params(q, params)
     steps = q["steps"]
     try:

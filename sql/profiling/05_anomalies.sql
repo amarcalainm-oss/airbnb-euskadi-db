@@ -1,5 +1,3 @@
--- Perfilado 5: duplicados, códigos sin significado claro y cosas inesperadas.
-
 -- @query Texto mal codificado (mojibake: 'ú' guardado como 'Ãº', 'Á' como 'Ã' + carácter de control)
 SELECT 'neighbourhoods.neighbourhood_group' AS columna, COUNT(*) FILTER (WHERE neighbourhood_group LIKE '%Ã%') AS filas_afectadas, COUNT(*) AS total FROM staging.neighbourhoods
 UNION ALL SELECT 'neighbourhoods.neighbourhood', COUNT(*) FILTER (WHERE neighbourhood LIKE '%Ã%'), COUNT(*) FROM staging.neighbourhoods

@@ -1,17 +1,4 @@
-"""
-Paso 2 - Copia los CSV TAL CUAL a un esquema 'staging' (todo como TEXT).
-
-¿Por qué? El enunciado obliga a que TODO el análisis se haga en SQL, también
-el perfilado de los datos en bruto (número de filas, nulos, claves candidatas...).
-Para poder hacerlo en SQL, primero hay que meter los ficheros en PostgreSQL
-sin tocarlos. Python aquí solo lee la cabecera para saber el nombre de las
-columnas y envía el fichero con COPY; no analiza nada.
-
-Cada columna es TEXT para que no se pierda ni se rechace ningún valor raro:
-precisamente queremos VER esos valores raros al perfilar.
-
-Este esquema es auxiliar: NO es el modelo final (ese está en sql/schema.sql).
-"""
+"""Copia los CSV en bruto, todo como TEXT, al esquema staging."""
 import csv
 import time
 

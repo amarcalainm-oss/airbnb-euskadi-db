@@ -62,7 +62,7 @@ _15 rows returned._
 
 **Why it is meaningful:** The median (not the mean) is robust to luxury outliers, and HAVING removes towns with 2-3 listings whose price says nothing about the market.
 
-_Execution time: 19 ms_
+_Execution time: 15 ms_
 
 ## Q02 - Most reviewed listings per province (ranking)
 
@@ -73,7 +73,6 @@ _Execution time: 19 ms_
 
 ```sql
 WITH review_counts AS (
-    -- Step 1: number of reviews of each listing (LEFT JOIN keeps listings with 0 reviews)
     SELECT l.listing_id, l.name AS listing, p.name AS province, m.name AS municipality,
            l.room_type, l.score_rating,
            COUNT(lr.review_id) AS n_reviews
@@ -84,11 +83,9 @@ WITH review_counts AS (
     GROUP BY l.listing_id, p.name, m.name
 ),
 ranked AS (
-    -- Step 2: position of each listing inside its province (1 = most reviewed)
     SELECT *, RANK() OVER (PARTITION BY province ORDER BY n_reviews DESC) AS rank_in_province
     FROM review_counts
 )
--- Step 3: keep the top N of each province
 SELECT province, rank_in_province, listing, municipality, room_type, n_reviews, score_rating
 FROM ranked
 WHERE rank_in_province <= %(top_n)s
@@ -115,7 +112,7 @@ _15 rows returned._
 
 **Why it is meaningful:** The number of reviews is the best public proxy for the number of stays, so the ranking shows which listings capture most of the demand in each province.
 
-_Execution time: 179 ms_
+_Execution time: 168 ms_
 
 ## Q03 - Monthly demand trend (reviews per month, year-over-year)
 
@@ -126,8 +123,6 @@ _Execution time: 179 ms_
 
 ```sql
 WITH monthly AS (
-    -- Step 1: reviews per month.
-    -- COUNT(DISTINCT) because one review can be linked to several listings of the same host.
     SELECT date_trunc('month', r.review_date)::date AS month,
            COUNT(DISTINCT r.review_id)              AS reviews
     FROM airbnb.review r
@@ -139,19 +134,15 @@ WITH monthly AS (
     GROUP BY 1
 ),
 all_months AS (
-    -- Step 2: every month from the first to the last one. A month with no reviews gets 0,
-    -- so that "12 rows before" in step 3 really is the same month of the previous year.
     SELECT gs::date AS month, COALESCE(mo.reviews, 0) AS reviews
     FROM generate_series((SELECT MIN(month) FROM monthly),
                          (SELECT MAX(month) FROM monthly), INTERVAL '1 month') gs
     LEFT JOIN monthly mo ON mo.month = gs::date
 ),
 with_last_year AS (
-    -- Step 3: next to each month, the value of the same month one year before
     SELECT month, reviews, LAG(reviews, 12) OVER (ORDER BY month) AS reviews_last_year
     FROM all_months
 )
--- Step 4: year-over-year change in percent (NULLIF avoids dividing by zero)
 SELECT month, reviews, reviews_last_year,
        ROUND(100.0 * (reviews - reviews_last_year) / NULLIF(reviews_last_year, 0), 1) AS yoy_change_pct
 FROM with_last_year
@@ -178,7 +169,7 @@ _129 rows returned._
 
 **Why it is meaningful:** Reviews are written after a stay, so this curve shows seasonality, the COVID collapse and the recovery of tourist demand in the Basque Country.
 
-_Execution time: 1093 ms_
+_Execution time: 1253 ms_
 
 ## Q04 - Multi-listing hosts (market concentration)
 
@@ -192,7 +183,6 @@ SELECT h.host_id,
        h.name                              AS host,
        h.is_superhost,
        COUNT(*)                            AS listings,
-       -- scalar subquery: total listings in the filter, to turn the count into a share
        ROUND(100.0 * COUNT(*) / (SELECT COUNT(*)
                                  FROM airbnb.listing l2
                                  JOIN airbnb.municipality m2 ON m2.municipality_id = l2.municipality_id
@@ -230,7 +220,7 @@ _15 rows returned._
 
 **Why it is meaningful:** A few professional operators holding a large share of listings is a key argument in the debate about tourist flats and housing.
 
-_Execution time: 48 ms_
+_Execution time: 19 ms_
 
 ## Q05 - Booked/blocked days per month for the next year
 
@@ -275,7 +265,7 @@ _39 rows returned._
 
 **Why it is meaningful:** An unavailable day is either booked or blocked by the host, so this curve shows the expected busy seasons (summer, holidays) months in advance.
 
-_Execution time: 625 ms_
+_Execution time: 770 ms_
 
 ## Q06 - Price premium of each amenity
 
@@ -286,7 +276,6 @@ _Execution time: 625 ms_
 
 ```sql
 WITH base AS (
-    -- Step 1: listings in the filter, with their price per guest
     SELECT l.listing_id, l.price / l.accommodates AS price_per_guest
     FROM airbnb.listing l
     JOIN airbnb.municipality m ON m.municipality_id = l.municipality_id
@@ -296,12 +285,10 @@ WITH base AS (
       AND (%(room_type)s IS NULL OR l.room_type = %(room_type)s)
 ),
 overall AS (
-    -- Step 2: one row with the totals of ALL listings in the filter
     SELECT COUNT(*) AS n_all, SUM(price_per_guest) AS sum_all
     FROM base
 ),
 with_amenity AS (
-    -- Step 3: for each amenity, the listings that HAVE it (through the bridge table)
     SELECT a.name AS amenity, COUNT(*) AS n_with, SUM(b.price_per_guest) AS sum_with
     FROM base b
     JOIN airbnb.listing_amenity la ON la.listing_id = b.listing_id
@@ -310,7 +297,6 @@ with_amenity AS (
     HAVING COUNT(*) >= %(min_listings)s
 ),
 both_groups AS (
-    -- Step 4: the listings WITHOUT the amenity are "all minus those with it"
     SELECT w.amenity,
            w.n_with,
            o.n_all - w.n_with                                       AS n_without,
@@ -318,7 +304,6 @@ both_groups AS (
            (o.sum_all - w.sum_with) / NULLIF(o.n_all - w.n_with, 0) AS avg_without
     FROM with_amenity w CROSS JOIN overall o
 )
--- Step 5: compare the two averages; both groups must be big enough
 SELECT amenity,
        n_with                                   AS listings_with,
        n_without                                AS listings_without,
@@ -350,7 +335,7 @@ _15 rows returned._
 
 **Why it is meaningful:** Using price per guest (price / accommodates) removes most of the size effect, so hosts can see which amenities go with higher prices.
 
-_Execution time: 74 ms_
+_Execution time: 64 ms_
 
 ## Q07 - Superhosts vs regular hosts
 
@@ -393,7 +378,7 @@ _6 rows returned._
 
 **Why it is meaningful:** It checks whether the "Superhost" badge reflects a measurable difference in guest satisfaction and price, using only listings with enough reviews.
 
-_Execution time: 39 ms_
+_Execution time: 42 ms_
 
 ## Q08 - Weekend vs weekday occupancy by municipality
 
@@ -404,8 +389,6 @@ _Execution time: 39 ms_
 
 ```sql
 WITH nights AS (
-    -- Step 1: calendar nights inside the horizon, each one marked as weekend or not and booked or not.
-    -- The scalar subquery finds the first calendar day; ISODOW 5 and 6 are Friday and Saturday.
     SELECT m.name AS municipality, p.name AS province, c.listing_id,
            EXTRACT(ISODOW FROM c.day) IN (5, 6) AS is_weekend,
            NOT c.available                      AS is_booked
@@ -417,7 +400,6 @@ WITH nights AS (
       AND (%(province)s IS NULL OR p.name = %(province)s)
 ),
 occ AS (
-    -- Step 2: per municipality, percent of weekend nights booked and of other nights booked
     SELECT municipality, province,
            COUNT(DISTINCT listing_id) AS listings,
            100.0 * COUNT(*) FILTER (WHERE is_weekend AND is_booked)
@@ -428,7 +410,6 @@ occ AS (
     GROUP BY municipality, province
     HAVING COUNT(DISTINCT listing_id) >= %(min_listings)s
 )
--- Step 3: rank the municipalities by the gap between both percentages
 SELECT RANK() OVER (ORDER BY weekend_occ - weekday_occ DESC) AS rank,
        municipality, province, listings,
        ROUND(weekend_occ, 1)               AS weekend_occ_pct,
@@ -458,7 +439,7 @@ _15 rows returned._
 
 **Why it is meaningful:** A large weekend gap marks short-break destinations (city/beach getaways), while a small gap suggests longer holiday or business stays.
 
-_Execution time: 2288 ms_
+_Execution time: 4697 ms_
 
 ## Q09 - What-if: price change in a municipality (UPDATE inside a transaction)
 
@@ -500,7 +481,7 @@ _UPDATE affected 1395 rows; the transaction then ended with ROLLBACK._
 
 **Why it is meaningful:** It runs a real UPDATE inside a transaction, measures the effect and then ROLLBACKs, so the database is never left modified: a safe "simulation" mode.
 
-_Execution time: 193 ms_
+_Execution time: 125 ms_
 
 ## Q10 - Repeat guests: how many reviews does each reviewer write?
 
@@ -511,19 +492,16 @@ _Execution time: 193 ms_
 
 ```sql
 WITH rv AS (
-    -- Step 1: each review with the date of the SAME reviewer's next review (LEAD)
     SELECT r.reviewer_id, r.review_date,
            LEAD(r.review_date) OVER (PARTITION BY r.reviewer_id ORDER BY r.review_date, r.review_id) AS next_review_date
     FROM airbnb.review r
     WHERE r.review_date >= make_date(%(year_from)s, 1, 1)
 ),
 per_reviewer AS (
-    -- Step 2: per reviewer, how many reviews and the average days between them
     SELECT reviewer_id, COUNT(*) AS n_reviews, AVG(next_review_date - review_date) AS avg_gap_days
     FROM rv
     GROUP BY reviewer_id
 )
--- Step 3: group reviewers by reviews written; SUM(COUNT(*)) OVER () is the grand total
 SELECT CASE WHEN n_reviews >= 5 THEN '5+' ELSE n_reviews::text END AS reviews_written,
        COUNT(*)                                                 AS reviewers,
        ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 2)        AS pct_reviewers,
@@ -547,7 +525,7 @@ _5 rows returned._
 
 **Why it is meaningful:** The share of repeat guests and the time between visits measure loyalty to the destination, not just to one listing.
 
-_Execution time: 1615 ms_
+_Execution time: 1907 ms_
 
 ## Q11 - Tourist-registry licence status by municipality
 
@@ -594,7 +572,7 @@ _15 rows returned._
 
 **Why it is meaningful:** Basque law requires tourist flats to show a registration number, so listings without one point to where regulation is least enforced.
 
-_Execution time: 58 ms_
+_Execution time: 77 ms_
 
 ## Q12 - Best-value listings (cheaper than their town, top rated)
 
@@ -605,7 +583,6 @@ _Execution time: 58 ms_
 
 ```sql
 WITH town_median AS (
-    -- Step 1: median price of each municipality and room type (only groups with 10+ listings)
     SELECT municipality_id, room_type,
            percentile_cont(0.5) WITHIN GROUP (ORDER BY price)::numeric AS median_price
     FROM airbnb.listing
@@ -614,12 +591,10 @@ WITH town_median AS (
     HAVING COUNT(*) >= 10
 ),
 review_counts AS (
-    -- Step 2: number of reviews of each listing
     SELECT listing_id, COUNT(*) AS n_reviews
     FROM airbnb.listing_review
     GROUP BY listing_id
 )
--- Step 3: listings cheaper than their group's median, with a high value score and enough reviews
 SELECT l.listing_id, l.name AS listing, m.name AS municipality, l.room_type,
        l.price,
        ROUND(tm.median_price, 2)                       AS town_median_price,
@@ -636,7 +611,7 @@ WHERE l.price < tm.median_price
   AND rc.n_reviews  >= %(min_reviews)s
   AND (%(province)s  IS NULL OR p.name      = %(province)s)
   AND (%(room_type)s IS NULL OR l.room_type = %(room_type)s)
-ORDER BY l.score_value DESC, pct_vs_town_median ASC, l.listing_id   -- listing_id breaks ties: stable order
+ORDER BY l.score_value DESC, pct_vs_town_median ASC, l.listing_id
 LIMIT %(top_n)s;
 ```
 
@@ -659,7 +634,7 @@ _20 rows returned._
 
 **Why it is meaningful:** Comparing each listing with its own municipality and room type (not with the whole region) finds real bargains for a traveller.
 
-_Execution time: 89 ms_
+_Execution time: 200 ms_
 
 ## Q13 - Map of listings by price quintile
 
@@ -671,12 +646,10 @@ _Execution time: 89 ms_
 ```sql
 SELECT q.listing_id, q.listing, q.municipality, q.room_type, q.price, q.score_rating,
        q.latitude, q.longitude, q.price_quintile,
-       -- Step 2: legend label of each fifth with its cheapest and dearest price, e.g. "Q1: 14.77 - 101.50 EUR"
        'Q' || q.price_quintile || ': ' ||
        MIN(q.price) OVER (PARTITION BY q.price_quintile) || ' - ' ||
        MAX(q.price) OVER (PARTITION BY q.price_quintile) || ' EUR'      AS price_band
 FROM (
-    -- Step 1: listings in the filter, split into 5 groups of equal size from cheapest (1) to dearest (5)
     SELECT l.listing_id, l.name AS listing, m.name AS municipality, l.room_type, l.price,
            l.score_rating, l.latitude, l.longitude,
            NTILE(5) OVER (ORDER BY l.price) AS price_quintile
@@ -710,4 +683,4 @@ _5540 rows returned._
 
 **Why it is meaningful:** Splitting the market into price fifths in SQL and placing every listing on the map shows how price varies with location: the coast and the three capitals against the inland municipalities.
 
-_Execution time: 154 ms_
+_Execution time: 258 ms_

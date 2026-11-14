@@ -1,8 +1,3 @@
-"""
-Paso 7 - Ejecuta las 12 consultas con sus parámetros por defecto y genera
-docs/queries_results.md con el formato que pide el enunciado:
-pregunta, SQL, muestra del resultado y por qué es relevante (+ autor).
-"""
 import time
 
 from db import ROOT, get_connection
@@ -13,14 +8,12 @@ SAMPLE = 10
 
 
 def md_cell(v) -> str:
-    """Valor -> celda Markdown (NULL visible, sin '|' ni saltos, máx. 60 caracteres)."""
     if v is None:
         return "NULL"
     return str(v).replace("|", "\\|").replace("\n", " ")[:60]
 
 
 def md_table(cols, rows) -> list[str]:
-    """Tabla Markdown con las SAMPLE primeras filas."""
     lines = ["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
     lines += ["| " + " | ".join(md_cell(v) for v in r) + " |" for r in rows[:SAMPLE]]
     return lines

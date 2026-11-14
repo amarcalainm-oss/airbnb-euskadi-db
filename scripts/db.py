@@ -1,9 +1,3 @@
-"""
-Utilidad común: abre una conexión psycopg2 con los datos del fichero .env.
-
-Todos los scripts del proyecto importan get_connection() de aquí para no
-repetir credenciales. La contraseña NUNCA se escribe en el código.
-"""
 import os
 from pathlib import Path
 
@@ -19,8 +13,6 @@ DB_NAME = os.getenv("PGDATABASE", "airbnb_euskadi")
 
 
 def get_connection(dbname: str | None = None):
-    """Devuelve una conexión NUEVA. autocommit=False (por defecto en psycopg2):
-    nada se guarda hasta que se llama a conn.commit()."""
     return psycopg2.connect(
         host=os.getenv("PGHOST", "localhost"),
         port=os.getenv("PGPORT", "5432"),
@@ -31,6 +23,5 @@ def get_connection(dbname: str | None = None):
 
 
 def run_sql_file(conn, path: Path) -> None:
-    """Ejecuta un fichero .sql completo (dentro de la transacción actual)."""
     with conn.cursor() as cur:
         cur.execute(path.read_text(encoding="utf-8"))
