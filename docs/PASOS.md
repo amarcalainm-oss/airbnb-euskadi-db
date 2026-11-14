@@ -242,7 +242,7 @@ por qué importa, técnicas y parámetros por defecto. `scripts/run_queries.py` 
 | Q09 | Aitor | ¿Qué pasa si suben los precios un X %? | **UPDATE dentro de transacción + ROLLBACK** |
 | Q10 | Iker | Huéspedes que repiten | **LEAD()**, SUM(COUNT(*)) OVER () |
 | Q11 | Aitor | Anuncios sin número de registro turístico | GROUP BY + HAVING, FILTER |
-| Q12 | Iker | Gangas: más baratos que su municipio y bien puntuados | CTE con percentile_cont, subconsultas |
+| Q12 | Iker | Gangas: más baratos que su municipio y bien puntuados | dos CTE (mediana con percentile_cont, reseñas por anuncio) |
 | Q13 | Aitor | Mapa de anuncios por quintil de precio | **NTILE(5)**, MIN/MAX OVER (PARTITION BY), subconsulta en FROM |
 
 > **Pendiente.** El reparto de autores es una **propuesta**: cada uno debe revisar, entender y poder

@@ -1,10 +1,21 @@
 [theme]
+# Paleta "Cantábrico": niebla fría de fondo, pizarra para el texto y azul de mar como acento
 base = "light"
-primaryColor = "#2a78d6"
-backgroundColor = "#fcfcfb"
-secondaryBackgroundColor = "#f3f2ef"
-textColor = "#0b0b0b"
+primaryColor = "#1d5a85"
+backgroundColor = "#eef1ef"
+secondaryBackgroundColor = "#e3e8e6"
+textColor = "#142430"
+borderColor = "#d6dddb"
+baseRadius = "8px"
 font = "sans serif"
+
+[theme.sidebar]
+# Barra lateral en pizarra oscura: separa claramente los controles del contenido
+backgroundColor = "#142430"
+secondaryBackgroundColor = "#1f3444"
+textColor = "#e4eaec"
+primaryColor = "#8cbbe0"
+borderColor = "#2e4554"
 
 [client]
 toolbarMode = "viewer"

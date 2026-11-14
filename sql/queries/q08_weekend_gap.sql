@@ -5,27 +5,37 @@
 -- why: A large weekend gap marks short-break destinations (city/beach getaways), while a small gap suggests longer holiday or business stays.
 -- techniques: CTE, scalar subquery, aggregate FILTER, EXTRACT(ISODOW), GROUP BY + HAVING, window function RANK()
 -- params: {"province": null, "horizon_days": 90, "min_listings": 30, "top_n": 15}
-WITH occ AS (
-    SELECT m.name AS municipality, p.name AS province,
-           COUNT(DISTINCT c.listing_id) AS listings,
-           AVG(CASE WHEN c.available THEN 0.0 ELSE 1.0 END)
-               FILTER (WHERE EXTRACT(ISODOW FROM c.day) IN (5, 6))     AS weekend_occ,   -- Fri & Sat nights
-           AVG(CASE WHEN c.available THEN 0.0 ELSE 1.0 END)
-               FILTER (WHERE EXTRACT(ISODOW FROM c.day) NOT IN (5, 6)) AS weekday_occ
+WITH nights AS (
+    -- Step 1: calendar nights inside the horizon, each one marked as weekend or not and booked or not.
+    -- The scalar subquery finds the first calendar day; ISODOW 5 and 6 are Friday and Saturday.
+    SELECT m.name AS municipality, p.name AS province, c.listing_id,
+           EXTRACT(ISODOW FROM c.day) IN (5, 6) AS is_weekend,
+           NOT c.available                      AS is_booked
     FROM airbnb.calendar_day c
     JOIN airbnb.listing      l ON l.listing_id      = c.listing_id
     JOIN airbnb.municipality m ON m.municipality_id = l.municipality_id
     JOIN airbnb.province     p ON p.province_id     = m.province_id
     WHERE c.day < (SELECT MIN(day) FROM airbnb.calendar_day) + %(horizon_days)s
       AND (%(province)s IS NULL OR p.name = %(province)s)
-    GROUP BY m.name, p.name
-    HAVING COUNT(DISTINCT c.listing_id) >= %(min_listings)s
+),
+occ AS (
+    -- Step 2: per municipality, percent of weekend nights booked and of other nights booked
+    SELECT municipality, province,
+           COUNT(DISTINCT listing_id) AS listings,
+           100.0 * COUNT(*) FILTER (WHERE is_weekend AND is_booked)
+                 / COUNT(*) FILTER (WHERE is_weekend)                 AS weekend_occ,
+           100.0 * COUNT(*) FILTER (WHERE NOT is_weekend AND is_booked)
+                 / COUNT(*) FILTER (WHERE NOT is_weekend)             AS weekday_occ
+    FROM nights
+    GROUP BY municipality, province
+    HAVING COUNT(DISTINCT listing_id) >= %(min_listings)s
 )
+-- Step 3: rank the municipalities by the gap between both percentages
 SELECT RANK() OVER (ORDER BY weekend_occ - weekday_occ DESC) AS rank,
        municipality, province, listings,
-       ROUND(100 * weekend_occ, 1)                   AS weekend_occ_pct,
-       ROUND(100 * weekday_occ, 1)                   AS weekday_occ_pct,
-       ROUND(100 * (weekend_occ - weekday_occ), 1)   AS gap_points
+       ROUND(weekend_occ, 1)               AS weekend_occ_pct,
+       ROUND(weekday_occ, 1)               AS weekday_occ_pct,
+       ROUND(weekend_occ - weekday_occ, 1) AS gap_points
 FROM occ
 ORDER BY rank
 LIMIT %(top_n)s;

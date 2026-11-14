@@ -12,22 +12,32 @@ Reglas del enunciado que respeta:
   * El usuario nunca escribe SQL; los controles solo permiten valores válidos
     y cualquier error de base de datos se muestra como mensaje, sin romper la app.
 
+Diseño visual (paleta "Cantábrico"):
+  * Fondo de niebla fría, barra lateral de pizarra oscura y azul de mar como acento.
+    Los colores base viven en .streamlit/config.toml; aquí solo se afina con CSS.
+  * Tipografía: Newsreader (serifa) para la frase resumen y los títulos,
+    Schibsted Grotesk para la interfaz, las cifras y los gráficos.
+  * Cada consulta vive en su propio panel blanco: título, pregunta, controles,
+    gráfico y, plegado, el SQL que lo produce.
+
 Diseño de los gráficos (skill "dataviz"):
   * Paleta categórica fija: azul, naranja, aqua. Cada provincia tiene SIEMPRE el
     mismo color, aunque un filtro oculte las otras (el color sigue a la entidad).
   * Una sola serie -> un solo color, sin leyenda. Rejilla y ejes discretos.
 """
+import json
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import pandas as pd          # SOLO como contenedor de filas para mostrar/graficar
-import plotly.graph_objects as go
 import plotly.express as px
+import plotly.graph_objects as go
 import psycopg2
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-from db import get_connection                                        # noqa: E402
+from db import RAW_DIR, get_connection                               # noqa: E402
 from query_lib import load_queries, run_query, run_transaction_query  # noqa: E402
 
 st.set_page_config(page_title="Airbnb Euskadi - Database analysis", layout="wide")
@@ -40,46 +50,169 @@ SERIES = ["#2a78d6", "#eb6834", "#1baf7a"]          # slots 1-3 de la paleta de 
 # Rampa secuencial azul (un solo tono, claro -> oscuro) para los quintiles de precio del mapa
 PRICE_RAMP = ["#86b6ef", "#5598e7", "#2a78d6", "#1c5cab", "#104281"]
 PROVINCE_COLOR = {"Guipúzcoa": SERIES[0], "Vizcaya": SERIES[1], "Álava": SERIES[2]}
-INK, INK_2, INK_3, GRID, SURFACE = "#0b0b0b", "#52514e", "#8a8984", "#e6e5e1", "#ffffff"
+# Tinta pizarra, gris de texto, reglas y superficie blanca de los paneles
+INK, INK_2, INK_3, GRID, PANEL = "#142430", "#52606a", "#87939a", "#e1e6e4", "#ffffff"
+SANS = "'Schibsted Grotesk', 'Segoe UI', Helvetica, Arial, sans-serif"
 
 TEMPLATE = go.layout.Template(layout=dict(
-    font=dict(family="Inter, Segoe UI, Helvetica, Arial, sans-serif", size=13, color=INK_2),
-    paper_bgcolor=SURFACE, plot_bgcolor=SURFACE,
+    font=dict(family=SANS, size=13, color=INK_2),
+    # Fondo blanco explícito, igual que el panel que lo contiene
+    paper_bgcolor=PANEL, plot_bgcolor=PANEL,
     colorway=SERIES,
-    margin=dict(l=8, r=8, t=36, b=8),
-    xaxis=dict(showgrid=False, linecolor=GRID, ticks="", zeroline=False, title_font_color=INK_2),
-    yaxis=dict(gridcolor=GRID, gridwidth=1, linecolor=GRID, ticks="", zeroline=False, title_font_color=INK_2),
+    margin=dict(l=4, r=8, t=40, b=4),
+    xaxis=dict(showgrid=False, linecolor=GRID, ticks="", zeroline=False, title_font_color=INK_2,
+               tickfont=dict(color=INK_3)),
+    yaxis=dict(gridcolor=GRID, gridwidth=1, linecolor="rgba(0,0,0,0)", ticks="", zeroline=False,
+               title_font_color=INK_2, tickfont=dict(color=INK_3)),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, title_text="",
-                font=dict(color=INK_2)),
-    hoverlabel=dict(bgcolor=SURFACE, bordercolor=GRID, font=dict(color=INK, size=12)),
+                font=dict(color=INK_2, size=12)),
+    hoverlabel=dict(bgcolor=PANEL, bordercolor=GRID, font=dict(family=SANS, color=INK, size=12)),
     barcornerradius=4,
     bargap=0.35,
 ))
 
 
-def style(fig, height=420, horizontal=False):
+def style(fig, height=420):
     fig.update_layout(template=TEMPLATE, height=height, legend_title_text="")
-    fig.update_traces(selector=dict(type="bar"), marker_line_color=SURFACE, marker_line_width=2)
+    fig.update_traces(selector=dict(type="bar"), marker_line_color=PANEL, marker_line_width=2)
     fig.update_traces(selector=dict(type="scatter", mode="lines"), line_width=2)
-    if horizontal:
-        fig.update_layout(xaxis=dict(showgrid=True, gridcolor=GRID), yaxis=dict(showgrid=False))
     return fig
 
 
+# Hoja de estilo. Selectores apoyados en data-testid y en las clases st-key-* que
+# Streamlit genera a partir del parámetro key, que son estables entre versiones.
 CSS = """
 <style>
-  html, body, [class*="css"] { font-family: Inter, "Segoe UI", Helvetica, Arial, sans-serif; }
-  .block-container { padding-top: 2.2rem; max-width: 1280px; }
-  h1 { font-weight: 600; letter-spacing: -0.01em; font-size: 1.9rem !important; }
-  h2, h3 { font-weight: 600; letter-spacing: -0.005em; }
-  .subtitle { color: #52514e; font-size: 0.98rem; margin-top: -0.6rem; margin-bottom: 1.4rem; }
-  .q-meta { color: #52514e; font-size: 0.88rem; margin: -0.4rem 0 0.8rem 0; }
-  .q-meta b { color: #0b0b0b; font-weight: 600; }
-  [data-testid="stMetric"] { border: 1px solid #e6e5e1; border-radius: 6px; padding: 0.8rem 1rem; background: #ffffff; }
-  [data-testid="stMetricLabel"] p { color: #52514e; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em; }
-  [data-testid="stMetricValue"] { font-weight: 600; }
-  .stTabs [data-baseweb="tab"] { font-size: 0.95rem; padding: 0.6rem 1rem; }
-  .footer { color: #8a8984; font-size: 0.8rem; margin-top: 3rem; border-top: 1px solid #e6e5e1; padding-top: 0.8rem; }
+  @import url('https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap');
+
+  :root {
+    --mist: #eef1ef; --panel: #ffffff; --ink: #142430; --ink-2: #52606a; --ink-3: #87939a;
+    --rule: #d6dddb; --rule-soft: #e6ebe9; --sea: #1d5a85; --sea-wash: #e4eef5;
+    --slate: #142430; --slate-ink: #e4eaec; --slate-ink-2: #9fb0ba; --slate-rule: #2e4554;
+    --sans: 'Schibsted Grotesk', 'Segoe UI', Helvetica, Arial, sans-serif;
+    --serif: 'Newsreader', Georgia, 'Times New Roman', serif;
+    --ease: cubic-bezier(.2, .7, .2, 1);
+  }
+
+  /* ---------- base */
+  html, body, .stApp, .stMarkdown, button, input, label, textarea, [data-baseweb] {
+    font-family: var(--sans); }
+  .stApp { color: var(--ink); }
+  .block-container { padding: 2.4rem 2.6rem 3rem; max-width: 1240px; }
+  h1, h2, h3, h4 { font-family: var(--sans) !important; color: var(--ink) !important; }
+  [data-testid="stHeader"] { background: transparent; }
+  :focus-visible { outline: 2px solid var(--sea) !important; outline-offset: 2px; }
+  ::selection { background: var(--sea-wash); }
+
+  /* ---------- barra lateral */
+  [data-testid="stSidebar"] { border-right: 1px solid var(--slate-rule); }
+  [data-testid="stSidebar"] .block-container, [data-testid="stSidebarContent"] { padding-top: 0.6rem; }
+  .brand { display: flex; align-items: center; gap: 0.7rem; margin: 0.2rem 0 1.9rem; }
+  .brand-mark { width: 34px; height: 34px; flex: none; }
+  .brand-name { font-family: var(--serif); font-size: 1.28rem; font-weight: 500; line-height: 1.1;
+                color: #fff; letter-spacing: -0.005em; }
+  .brand-sub { font-size: 0.78rem; color: var(--slate-ink-2); margin-top: 0.15rem; }
+  .side-h { font-size: 0.86rem; font-weight: 600; color: var(--slate-ink); margin: 0 0 0.5rem; }
+  .side-note { font-size: 0.8rem; line-height: 1.45; color: var(--slate-ink-2); margin: 0.3rem 0 1.6rem; }
+  .side-rule { height: 1px; background: var(--slate-rule); margin: 1.4rem 0 1.3rem; }
+  .key { list-style: none; padding: 0; margin: 0; }
+  .key li { display: flex; align-items: center; gap: 0.6rem; font-size: 0.88rem; color: var(--slate-ink);
+            padding: 0.28rem 0; transition: opacity .2s var(--ease); }
+  .key li.dim { opacity: 0.38; }
+  .key i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  [data-testid="stSidebar"] label p { font-size: 0.82rem !important; color: var(--slate-ink-2) !important; }
+
+  /* ---------- cabecera */
+  .masthead { padding: 0.4rem 0 0.2rem; }
+  .kicker { display: flex; flex-wrap: wrap; gap: 0.5rem 1.2rem; align-items: center;
+            font-size: 0.85rem; color: var(--ink-2); margin-bottom: 1.1rem; }
+  .kicker .live { display: inline-flex; align-items: center; gap: 0.45rem; color: var(--sea); font-weight: 600; }
+  .kicker .live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--sea);
+                          box-shadow: 0 0 0 3px var(--sea-wash); }
+  h1.title { font-size: 1.02rem !important; font-weight: 600 !important; letter-spacing: 0;
+             margin: 0 0 0.5rem !important; padding: 0 !important; color: var(--ink-2) !important; }
+  .lede { font-family: var(--serif); font-weight: 400; font-size: clamp(1.65rem, 1.1rem + 1.9vw, 2.65rem);
+          line-height: 1.18; letter-spacing: -0.012em; color: var(--ink); max-width: 30ch;
+          margin: 0 0 1.1rem; font-variant-numeric: lining-nums tabular-nums;
+          animation: rise .7s var(--ease) both; }
+  .lede b { font-weight: 600; color: var(--sea);
+            background: linear-gradient(var(--sea-wash), var(--sea-wash)) no-repeat 0 88% / 100% 0.32em;
+            padding: 0 0.04em; }
+  .scope { color: var(--ink-2); font-size: 0.95rem; line-height: 1.55; max-width: 68ch; margin-bottom: 2rem;
+           animation: rise .7s .12s var(--ease) both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  /* ---------- navegación por pestañas */
+  .stTabs [data-baseweb="tab-list"] { gap: 0.25rem; border-bottom: 1px solid var(--rule);
+                                      overflow-x: auto; scrollbar-width: none; }
+  .stTabs [data-baseweb="tab"] { font-size: 0.93rem; font-weight: 500; color: var(--ink-2);
+                                 padding: 0.7rem 0.95rem 0.8rem; height: auto; background: transparent;
+                                 border-radius: 8px 8px 0 0; transition: color .15s var(--ease), background .15s var(--ease); }
+  .stTabs [data-baseweb="tab"]:hover { color: var(--ink); background: rgba(20, 36, 48, 0.04); }
+  .stTabs [aria-selected="true"] { color: var(--sea) !important; font-weight: 600; }
+  .stTabs [data-baseweb="tab-highlight"] { background: var(--sea); height: 2px; }
+  .stTabs [data-baseweb="tab-border"] { display: none; }
+  .stTabs [data-baseweb="tab-panel"] { padding-top: 1.6rem; animation: fade .28s var(--ease) both; }
+  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+
+  /* ---------- paneles de consulta */
+  [class*="st-key-panel_"] { background: var(--panel); border: 1px solid var(--rule-soft) !important;
+                             border-radius: 14px; padding: 1.5rem 1.6rem 0.9rem !important;
+                             box-shadow: 0 1px 0 rgba(20, 36, 48, 0.03), 0 12px 32px -24px rgba(20, 36, 48, 0.28);
+                             margin-bottom: 1.4rem; }
+  .q-head { display: flex; gap: 1rem; align-items: flex-start; justify-content: space-between; margin-bottom: 0.4rem; }
+  h3.q-title { font-family: var(--serif) !important; font-size: 1.5rem !important; font-weight: 500 !important;
+               line-height: 1.2 !important; letter-spacing: -0.008em; color: var(--ink) !important;
+               margin: 0 !important; padding: 0 !important; max-width: 46ch; }
+  .q-id { flex: none; font-size: 0.76rem; font-weight: 600; color: var(--sea); background: var(--sea-wash);
+          border-radius: 999px; padding: 0.22rem 0.62rem; margin-top: 0.3rem; font-variant-numeric: tabular-nums; }
+  .q-question { color: var(--ink-2); font-size: 0.97rem; line-height: 1.5; max-width: 72ch; margin: 0 0 0.25rem; }
+  .q-byline { color: var(--ink-3); font-size: 0.8rem; margin-bottom: 1.1rem; }
+  .q-note { color: var(--ink-2); font-size: 0.93rem; line-height: 1.55; max-width: 72ch;
+            border-left: 2px solid var(--sea); padding: 0.1rem 0 0.1rem 0.9rem; margin: 0 0 1.2rem; }
+  .q-note code { font-size: 0.86em; background: var(--sea-wash); color: var(--sea); padding: 0.05em 0.35em; border-radius: 4px; }
+
+  /* controles dentro de los paneles */
+  [class*="st-key-panel_"] label p { font-size: 0.84rem !important; color: var(--ink-2) !important; font-weight: 500; }
+  [data-testid="stSlider"] [role="slider"] { box-shadow: 0 0 0 4px rgba(29, 90, 133, 0.12); }
+
+  /* el tema de gráficos de Streamlit impone su fondo gris: aquí se deja transparente sobre el panel */
+  [class*="st-key-panel_"] .js-plotly-plot .main-svg { background: transparent !important; }
+  [class*="st-key-panel_"] .js-plotly-plot rect.bg { fill: transparent !important; }
+
+  /* SQL plegado al pie del panel */
+  [data-testid="stExpander"] details { border: none !important; border-top: 1px solid var(--rule-soft) !important;
+                                       border-radius: 0 !important; background: transparent; }
+  [data-testid="stExpander"] summary { padding: 0.85rem 0 0.4rem !important; color: var(--ink-2); font-size: 0.86rem; }
+  [data-testid="stExpander"] summary:hover { color: var(--sea); }
+  [data-testid="stExpander"] summary p { font-size: 0.86rem !important; }
+  [data-testid="stExpanderDetails"] { padding: 0.4rem 0 0.8rem !important; }
+  [data-testid="stCode"] pre, .stCode pre { border-radius: 10px !important; font-size: 0.82rem !important; }
+
+  /* tablas, avisos y botón */
+  [data-testid="stDataFrame"] { border: 1px solid var(--rule-soft); border-radius: 10px; overflow: hidden; margin-top: 0.4rem; }
+  [data-testid="stAlert"] { border-radius: 10px; }
+  .stButton button[kind="primary"] { border-radius: 8px; padding: 0.55rem 1.3rem; font-weight: 600;
+                                     transition: transform .12s var(--ease), box-shadow .2s var(--ease); }
+  .stButton button[kind="primary"]:hover { box-shadow: 0 6px 18px -8px rgba(29, 90, 133, 0.7); }
+  .stButton button[kind="primary"]:active { transform: translateY(1px); }
+
+  /* ---------- pie */
+  .footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.6rem 2rem;
+            color: var(--ink-3); font-size: 0.8rem; margin-top: 2.6rem; border-top: 1px solid var(--rule);
+            padding-top: 1rem; }
+
+  /* ---------- pantallas estrechas */
+  @media (max-width: 760px) {
+    .block-container { padding: 1.6rem 1rem 2rem; }
+    [class*="st-key-panel_"] { padding: 1.1rem 1rem 0.6rem !important; border-radius: 12px; }
+    h3.q-title { font-size: 1.25rem !important; }
+    .q-head { flex-direction: column-reverse; gap: 0.4rem; }
+    .q-id { margin-top: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -117,45 +250,137 @@ def lookup(sql: str) -> list:
     return out
 
 
+def reset_conn():
+    """Tras un error, deshace la transacción abierta para que la conexión compartida no se quede
+    en estado 'transacción abortada' y las siguientes consultas puedan ejecutarse."""
+    try:
+        c = connection()
+        if not c.closed:
+            c.rollback()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def show(qid: str, **params):
     """Ejecuta la consulta qid con params y devuelve el DataFrame, o None si falla."""
     try:
         return fetch(qid, tuple(sorted(params.items())))
     except psycopg2.Error as e:
+        reset_conn()
         st.error(f"Database error in {qid}: {e.pgerror or e}")
     except Exception as e:  # noqa: BLE001
+        reset_conn()
         st.error(f"Unexpected error in {qid}: {e}")
     return None
 
 
 def header(qid: str, title: str):
+    """Cabecera del panel: título, identificador de la consulta, pregunta y autor."""
     q = QUERIES[qid]
-    st.subheader(title)
-    st.markdown(f"<div class='q-meta'><b>{q['id']}</b> &nbsp;·&nbsp; {q['question']} "
-                f"&nbsp;·&nbsp; Author: {q['author']}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='q-head'><h3 class='q-title'>{title}</h3><span class='q-id'>{q['id']}</span></div>"
+                f"<p class='q-question'>{q['question']}</p>"
+                f"<div class='q-byline'>Written by {q['author']}</div>", unsafe_allow_html=True)
 
 
 def sql_box(qid: str):
     q = QUERIES[qid]
-    with st.expander(f"SQL and interpretation ({q['techniques']})"):
+    with st.expander(f"Show the SQL and interpretation ({q['techniques']})"):
         st.code(q["sql"], language="sql")
         st.markdown(f"**Why it matters.** {q['why']}")
+
+
+@contextmanager
+def panel(qid: str, title: str):
+    """Panel de una consulta: cabecera arriba, contenido del bloque 'with' y SQL plegado al pie.
+    La key genera la clase CSS st-key-panel_<qid>, que da al panel su aspecto."""
+    with st.container(border=True, key=f"panel_{qid}"):
+        header(qid, title)
+        yield
+        sql_box(qid)
 
 
 def empty(df) -> bool:
     if df is None:
         return True
     if df.empty:
-        st.info("No rows match the current filters.")
+        st.info("No rows match these filters. Lower the thresholds above or widen the province "
+                "and room type in the sidebar.")
         return True
     return False
+
+
+def fix_text(s):
+    """'Ã\x81lava' -> 'Álava': texto UTF-8 leído como Latin-1 (la misma limpieza que la regla R01 del ETL)."""
+    try:
+        return s.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError, AttributeError):
+        return s
+
+
+@st.cache_data
+def province_shapes() -> dict:
+    """Fronteras de los municipios (neighbourhoods.geojson de Inside Airbnb) agrupadas por provincia,
+    solo para dibujarlas en el mapa. No se calcula ningún dato: se reparte el fichero tal cual.
+    Si el fichero no está descargado, devuelve {} y el mapa se dibuja sin zonas."""
+    path = RAW_DIR / "neighbourhoods.geojson"
+    if not path.exists():
+        return {}
+    shapes = {}
+    for feature in json.loads(path.read_text(encoding="utf-8"))["features"]:
+        name = fix_text(feature["properties"].get("neighbourhood_group"))
+        shapes.setdefault(name, {"type": "FeatureCollection", "features": []})["features"].append(feature)
+    return shapes
+
+
+# Posición aproximada del nombre de cada provincia en el mapa (constantes de dibujo, no datos)
+PROVINCE_LABEL_AT = {"Vizcaya": (43.27, -2.93), "Guipúzcoa": (43.17, -2.17), "Álava": (42.80, -2.72)}
+
+
+def province_layers(selected):
+    """Capas del mapa: relleno suave y borde fino de cada provincia en su color fijo.
+    La provincia filtrada se resalta un poco más; las demás quedan casi transparentes."""
+    layers = []
+    for name, shape in province_shapes().items():
+        color = PROVINCE_COLOR.get(name, INK_3)
+        strong = selected is None or selected == name
+        layers.append(dict(sourcetype="geojson", source=shape, type="fill", below="traces",
+                           color=color, opacity=0.13 if strong else 0.04))
+        layers.append(dict(sourcetype="geojson", source=shape, type="line", below="traces",
+                           color=color, opacity=0.45 if strong else 0.15, line=dict(width=0.7)))
+    return layers
 
 
 def plot(fig):
     st.plotly_chart(fig, use_container_width=True, config={"displaylogo": False})
 
 
+def plot_ranking(fig, n_rows: int):
+    """Barras horizontales: el mayor arriba, rejilla vertical y altura según el nº de filas."""
+    style(fig, height=max(320, 28 * n_rows))
+    fig.update_layout(xaxis=dict(showgrid=True, gridcolor=GRID),
+                      yaxis=dict(showgrid=False, categoryorder="total ascending", tickfont=dict(color=INK_2)))
+    plot(fig)
+
+
+def rename_series(fig, names: dict):
+    """Sustituye el nombre de columna de cada serie por su etiqueta de leyenda."""
+    fig.for_each_trace(lambda t: t.update(name=names[t.name]))
+
+
 # ------------------------------------------------------------ barra lateral
+# Marca: tres franjas que evocan las tres provincias, en sus colores de los gráficos
+BRAND = f"""
+<div class='brand'>
+  <svg class='brand-mark' viewBox='0 0 34 34' aria-hidden='true'>
+    <rect width='34' height='34' rx='9' fill='#1f3444'/>
+    <rect x='8' y='9' width='18' height='3.4' rx='1.7' fill='{SERIES[0]}'/>
+    <rect x='8' y='15.3' width='13' height='3.4' rx='1.7' fill='{SERIES[1]}'/>
+    <rect x='8' y='21.6' width='8' height='3.4' rx='1.7' fill='{SERIES[2]}'/>
+  </svg>
+  <div><div class='brand-name'>Airbnb Euskadi</div><div class='brand-sub'>Database analysis</div></div>
+</div>"""
+st.sidebar.markdown(BRAND, unsafe_allow_html=True)
+
 try:
     PROVINCES = lookup("SELECT name FROM airbnb.province ORDER BY name")
     MUNICIPALITIES = lookup("""SELECT m.name FROM airbnb.municipality m
@@ -165,19 +390,28 @@ except Exception as e:  # noqa: BLE001
     st.error(f"Cannot connect to PostgreSQL. Check the .env file and that the database is loaded.\n\n{e}")
     st.stop()
 
-st.sidebar.markdown("### Filters")
+st.sidebar.markdown("<div class='side-h'>Filters</div>", unsafe_allow_html=True)
 province = st.sidebar.selectbox("Province", ["All provinces"] + PROVINCES)
 room = st.sidebar.selectbox("Room type", ["All room types"] + ROOM_TYPES)
+# Parámetros de las consultas: None significa "sin filtro"
 P = None if province == "All provinces" else province
 R = None if room == "All room types" else room
-st.sidebar.caption("Filters are passed to PostgreSQL as bound query parameters. "
-                   "Charts that do not depend on a filter ignore it.")
+st.sidebar.markdown("<div class='side-note'>Filters are passed to PostgreSQL as bound query parameters. "
+                    "Charts that do not depend on a filter ignore it.</div>", unsafe_allow_html=True)
+
+# Leyenda fija de provincias: la provincia no seleccionada se atenúa
+key_items = "".join(
+    f"<li class='{'dim' if P and P != name else ''}'><i style='background:{PROVINCE_COLOR.get(name, INK_3)}'></i>{name}</li>"
+    for name in PROVINCES)
+st.sidebar.markdown(f"<div class='side-rule'></div><div class='side-h'>Province colours</div>"
+                    f"<ul class='key'>{key_items}</ul>"
+                    f"<div class='side-note'>Each province keeps its colour in every chart.</div>",
+                    unsafe_allow_html=True)
 
 # ---------------------------------------------------------------- cabecera
-st.title("Short-term rental market in the Basque Country")
-st.markdown("<div class='subtitle'>Relational analysis of Inside Airbnb data for Euskadi "
-            "(snapshot of 25 September 2026). All figures are computed in PostgreSQL.</div>",
-            unsafe_allow_html=True)
+st.markdown("<div class='masthead'><div class='kicker'><span class='live'>Inside Airbnb snapshot</span>"
+            "<span>25 September 2026</span><span>Álava, Guipúzcoa and Vizcaya</span></div>"
+            "<h1 class='title'>Short-term rentals in the Basque Country</h1></div>", unsafe_allow_html=True)
 try:
     c = conn_ok()
     with c.cursor() as cur:
@@ -198,211 +432,202 @@ try:
                     {"p": P, "r": R})
         n_list, n_hosts, med_price, n_rev = cur.fetchone()
     c.rollback()
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Listings", f"{n_list:,}")
-    k2.metric("Hosts", f"{n_hosts:,}")
-    k3.metric("Median nightly price", f"{med_price} EUR" if med_price is not None else "n/a")
-    k4.metric("Reviews", f"{n_rev:,}")
+    # La frase resumen cambia con los filtros: todos sus números salen de la consulta anterior
+    where = f" in {province}" if P else " in Euskadi"
+    kind = f" ({room.lower()})" if R else ""
+    price = f"<b>{med_price} EUR</b> per night" if med_price is not None else "no published price"
+    st.markdown(f"<div class='lede'><b>{n_list:,}</b> listings{kind}{where}, run by <b>{n_hosts:,}</b> hosts, "
+                f"with a median of {price} and <b>{n_rev:,}</b> guest reviews.</div>", unsafe_allow_html=True)
 except Exception as e:  # noqa: BLE001
-    st.error(f"Error loading summary figures: {e}")
+    reset_conn()
+    st.error(f"Could not load the summary figures: {e}")
 
-st.write("")
-tabs = st.tabs(["Map", "Prices", "Demand", "Hosts", "Amenities and licences", "Guests", "Price simulation"])
-tab_map, tabs = tabs[0], tabs[1:]
+st.markdown("<div class='scope'>Every number and chart below is the result of a hand-written SQL query "
+            "run against PostgreSQL. Use the filters in the sidebar to narrow the province and room type; "
+            "each panel adds its own controls.</div>", unsafe_allow_html=True)
+tab_map, tab_prices, tab_demand, tab_hosts, tab_amenities, tab_guests, tab_simulation = st.tabs(
+    ["Map", "Prices", "Demand", "Hosts", "Amenities and licences", "Guests", "Price simulation"])
 
 # --------------------------------------------------------------------- MAP
 with tab_map:
-    header("Q13", "Location of listings by price quintile")
-    min_r13 = st.slider("Minimum number of reviews", 0, 100, 0, key="q13r")
-    df = show("Q13", province=P, room_type=R, min_reviews=min_r13)
-    if not empty(df):
-        # Las filas llegan ordenadas por quintil, así que cada banda toma su tono de la rampa en orden
-        fig = px.scatter_map(df, lat="latitude", lon="longitude", color="price_band",
-                             color_discrete_sequence=PRICE_RAMP, hover_name="listing",
-                             hover_data={"municipality": True, "room_type": True, "price": True,
-                                         "score_rating": True, "latitude": False, "longitude": False,
-                                         "price_band": False},
-                             zoom=8.2, center={"lat": 43.13, "lon": -2.55}, map_style="carto-positron")
-        fig.update_traces(marker=dict(size=7, opacity=0.8))
-        fig.update_layout(template=TEMPLATE, height=620, margin=dict(l=0, r=0, t=36, b=0),
-                          legend_title_text="Price per night")
-        plot(fig)
-    sql_box("Q13")
+    with panel("Q13", "Location of listings by price quintile"):
+        min_reviews = st.slider("Minimum number of reviews", 0, 100, 0, key="q13r")
+        df = show("Q13", province=P, room_type=R, min_reviews=min_reviews)
+        if not empty(df):
+            # Las filas llegan ordenadas por quintil, así que cada banda toma su tono de la rampa en orden
+            fig = px.scatter_map(df, lat="latitude", lon="longitude", color="price_band",
+                                 color_discrete_sequence=PRICE_RAMP, hover_name="listing",
+                                 hover_data={"municipality": True, "room_type": True, "price": True,
+                                             "score_rating": True, "latitude": False, "longitude": False,
+                                             "price_band": False},
+                                 zoom=8.2, center={"lat": 43.13, "lon": -2.55}, map_style="carto-positron")
+            fig.update_traces(marker=dict(size=6, opacity=0.85))
+            # Nombre de cada provincia sobre su zona, en su color
+            for name, (lat, lon) in PROVINCE_LABEL_AT.items():
+                fig.add_trace(go.Scattermap(lat=[lat], lon=[lon], mode="text", text=[name],
+                                            hoverinfo="skip", showlegend=False,
+                                            textfont=dict(size=15, color=PROVINCE_COLOR[name], family="Open Sans Bold")))
+            fig.update_layout(template=TEMPLATE, height=640, margin=dict(l=0, r=0, t=40, b=0),
+                              legend_title_text="Price per night",
+                              map=dict(layers=province_layers(P), style="carto-positron"))
+            plot(fig)
+            if not province_shapes():
+                st.caption("Province areas are not shown: run scripts/download_data.py to fetch the boundaries.")
 
 # ------------------------------------------------------------------ PRICES
-with tabs[0]:
-    header("Q01", "Median nightly price by municipality")
-    c1, c2 = st.columns(2)
-    min_l = c1.slider("Minimum listings per municipality", 5, 200, 20, key="q01m")
-    top = c2.slider("Municipalities shown", 5, 40, 15, key="q01t")
-    df = show("Q01", province=P, room_type=R, min_listings=min_l, top_n=top)
-    if not empty(df):
-        fig = px.bar(df, x="median_price", y="municipality", color="province", orientation="h",
-                     color_discrete_map=PROVINCE_COLOR, hover_data=["listings", "avg_price"],
-                     labels={"median_price": "Median price per night (EUR)", "municipality": ""})
-        fig.update_layout(yaxis={"categoryorder": "total ascending"})
-        plot(style(fig, height=max(320, 28 * len(df)), horizontal=True))
-    sql_box("Q01")
+with tab_prices:
+    with panel("Q01", "Median nightly price by municipality"):
+        c1, c2 = st.columns(2)
+        min_listings = c1.slider("Minimum listings per municipality", 5, 200, 20, key="q01m")
+        top_n = c2.slider("Municipalities shown", 5, 40, 15, key="q01t")
+        df = show("Q01", province=P, room_type=R, min_listings=min_listings, top_n=top_n)
+        if not empty(df):
+            fig = px.bar(df, x="median_price", y="municipality", color="province", orientation="h",
+                         color_discrete_map=PROVINCE_COLOR, hover_data=["listings", "avg_price"],
+                         labels={"median_price": "Median price per night (EUR)", "municipality": ""})
+            plot_ranking(fig, len(df))
 
-    st.divider()
-    header("Q12", "Listings priced below their municipality's median with top value scores")
-    c1, c2, c3 = st.columns(3)
-    score = c1.slider("Minimum value score", 4.0, 5.0, 4.8, 0.05, key="q12s")
-    min_r = c2.slider("Minimum number of reviews", 1, 200, 20, key="q12r")
-    top12 = c3.slider("Listings shown", 5, 50, 20, key="q12t")
-    df = show("Q12", province=P, room_type=R, min_score=score, min_reviews=min_r, top_n=top12)
-    if not empty(df):
-        fig = px.scatter(df, x="town_median_price", y="price", size="n_reviews", size_max=22,
-                         hover_name="listing", hover_data=["municipality", "score_value", "pct_vs_town_median"],
-                         labels={"town_median_price": "Median price of the municipality (EUR)",
-                                 "price": "Listing price (EUR)"})
-        fig.update_traces(marker=dict(color=SERIES[0], opacity=0.85, line=dict(color=SURFACE, width=2)))
-        plot(style(fig))
-        st.dataframe(df, use_container_width=True, hide_index=True)
-    sql_box("Q12")
+    with panel("Q12", "Listings priced below their municipality's median with top value scores"):
+        c1, c2, c3 = st.columns(3)
+        min_score = c1.slider("Minimum value score", 4.0, 5.0, 4.8, 0.05, key="q12s")
+        min_reviews = c2.slider("Minimum number of reviews", 1, 200, 20, key="q12r")
+        top_n = c3.slider("Listings shown", 5, 50, 20, key="q12t")
+        df = show("Q12", province=P, room_type=R, min_score=min_score, min_reviews=min_reviews, top_n=top_n)
+        if not empty(df):
+            fig = px.scatter(df, x="town_median_price", y="price", size="n_reviews", size_max=22,
+                             hover_name="listing", hover_data=["municipality", "score_value", "pct_vs_town_median"],
+                             labels={"town_median_price": "Median price of the municipality (EUR)",
+                                     "price": "Listing price (EUR)"})
+            fig.update_traces(marker=dict(color=SERIES[0], opacity=0.85, line=dict(color=PANEL, width=2)))
+            plot(style(fig))
+            st.dataframe(df, use_container_width=True, hide_index=True)
 
 # ------------------------------------------------------------------ DEMAND
-with tabs[1]:
-    header("Q03", "Reviews per month as a proxy for demand")
-    year = st.slider("From year", 2011, 2026, 2016, key="q03y")
-    df = show("Q03", province=P, year_from=year)
-    if not empty(df):
-        fig = px.line(df, x="month", y="reviews", hover_data=["reviews_last_year", "yoy_change_pct"],
-                      labels={"reviews": "Reviews per month", "month": ""})
-        fig.update_traces(line_color=SERIES[0])
-        fig.update_layout(hovermode="x unified")
-        plot(style(fig))
-    sql_box("Q03")
+with tab_demand:
+    with panel("Q03", "Reviews per month as a proxy for demand"):
+        year_from = st.slider("From year", 2011, 2026, 2016, key="q03y")
+        df = show("Q03", province=P, year_from=year_from)
+        if not empty(df):
+            fig = px.line(df, x="month", y="reviews", hover_data=["reviews_last_year", "yoy_change_pct"],
+                          labels={"reviews": "Reviews per month", "month": ""})
+            fig.update_traces(line_color=SERIES[0])
+            fig.update_layout(hovermode="x unified")
+            plot(style(fig))
 
-    st.divider()
-    header("Q05", "Share of listing-days already unavailable over the next twelve months")
-    df = show("Q05", room_type=R)
-    if not empty(df):
-        fig = px.line(df, x="month", y="pct_unavailable", color="province", markers=True,
-                      color_discrete_map=PROVINCE_COLOR,
-                      labels={"pct_unavailable": "Unavailable listing-days (%)", "month": ""})
-        fig.update_traces(marker_size=8, line_width=2)
-        fig.update_layout(hovermode="x unified")
-        plot(style(fig))
-    sql_box("Q05")
+    with panel("Q05", "Share of listing-days already unavailable over the next twelve months"):
+        df = show("Q05", room_type=R)
+        if not empty(df):
+            fig = px.line(df, x="month", y="pct_unavailable", color="province", markers=True,
+                          color_discrete_map=PROVINCE_COLOR,
+                          labels={"pct_unavailable": "Unavailable listing-days (%)", "month": ""})
+            fig.update_traces(marker_size=8, line_width=2)
+            fig.update_layout(hovermode="x unified")
+            plot(style(fig))
 
-    st.divider()
-    header("Q08", "Weekend versus weekday occupancy")
-    c1, c2, c3 = st.columns(3)
-    horizon = c1.slider("Horizon (days ahead)", 14, 365, 90, key="q08h")
-    min_l8 = c2.slider("Minimum listings per municipality", 10, 300, 30, key="q08m")
-    top8 = c3.slider("Municipalities shown", 5, 30, 15, key="q08t")
-    df = show("Q08", province=P, horizon_days=horizon, min_listings=min_l8, top_n=top8)
-    if not empty(df):
-        fig = px.bar(df, x="municipality", y=["weekend_occ_pct", "weekday_occ_pct"], barmode="group",
-                     labels={"value": "Unavailable nights (%)", "municipality": "", "variable": ""})
-        fig.for_each_trace(lambda t: t.update(name={"weekend_occ_pct": "Friday and Saturday nights",
-                                                    "weekday_occ_pct": "Other nights"}[t.name]))
-        plot(style(fig))
-    sql_box("Q08")
+    with panel("Q08", "Weekend versus weekday occupancy"):
+        c1, c2, c3 = st.columns(3)
+        horizon_days = c1.slider("Horizon (days ahead)", 14, 365, 90, key="q08h")
+        min_listings = c2.slider("Minimum listings per municipality", 10, 300, 30, key="q08m")
+        top_n = c3.slider("Municipalities shown", 5, 30, 15, key="q08t")
+        df = show("Q08", province=P, horizon_days=horizon_days, min_listings=min_listings, top_n=top_n)
+        if not empty(df):
+            fig = px.bar(df, x="municipality", y=["weekend_occ_pct", "weekday_occ_pct"], barmode="group",
+                         labels={"value": "Unavailable nights (%)", "municipality": "", "variable": ""})
+            rename_series(fig, {"weekend_occ_pct": "Friday and Saturday nights", "weekday_occ_pct": "Other nights"})
+            plot(style(fig))
 
 # ------------------------------------------------------------------- HOSTS
-with tabs[2]:
-    header("Q07", "Guest scores of superhosts and regular hosts")
-    c1, c2 = st.columns(2)
-    min_r7 = c1.slider("Minimum reviews per listing", 1, 100, 10, key="q07r")
-    metric_labels = {"avg_rating": "Overall rating", "avg_cleanliness": "Cleanliness",
-                     "avg_communication": "Communication", "avg_value": "Value", "avg_price": "Average price (EUR)"}
-    metric = c2.selectbox("Measure", list(metric_labels), format_func=metric_labels.get)
-    df = show("Q07", min_reviews=min_r7)
-    if not empty(df):
-        fig = px.bar(df, x="province", y=metric, color="host_type", barmode="group", hover_data=["listings"],
-                     color_discrete_map={"Superhost": SERIES[0], "Regular host": SERIES[1]},
-                     labels={metric: metric_labels[metric], "province": ""})
-        if metric != "avg_price":
-            fig.update_yaxes(range=[4.0, 5.0])
-        plot(style(fig, height=380))
-    sql_box("Q07")
+with tab_hosts:
+    with panel("Q07", "Guest scores of superhosts and regular hosts"):
+        c1, c2 = st.columns(2)
+        min_reviews = c1.slider("Minimum reviews per listing", 1, 100, 10, key="q07r")
+        metric_labels = {"avg_rating": "Overall rating", "avg_cleanliness": "Cleanliness",
+                         "avg_communication": "Communication", "avg_value": "Value", "avg_price": "Average price (EUR)"}
+        metric = c2.selectbox("Measure", list(metric_labels), format_func=metric_labels.get)
+        df = show("Q07", min_reviews=min_reviews)
+        if not empty(df):
+            fig = px.bar(df, x="province", y=metric, color="host_type", barmode="group", hover_data=["listings"],
+                         color_discrete_map={"Superhost": SERIES[0], "Regular host": SERIES[1]},
+                         labels={metric: metric_labels[metric], "province": ""})
+            if metric != "avg_price":
+                fig.update_yaxes(range=[4.0, 5.0])
+            plot(style(fig, height=380))
 
-    st.divider()
-    header("Q04", "Hosts managing the largest number of listings")
-    c1, c2 = st.columns(2)
-    min_l4 = c1.slider("Minimum listings per host", 2, 50, 10, key="q04m")
-    top4 = c2.slider("Hosts shown", 5, 40, 15, key="q04t")
-    df = show("Q04", province=P, min_listings=min_l4, top_n=top4)
-    if not empty(df):
-        fig = px.bar(df, x="listings", y="host", orientation="h", hover_data=["pct_of_supply", "municipalities", "avg_price"],
-                     labels={"listings": "Listings", "host": ""})
-        fig.update_traces(marker_color=SERIES[0])
-        fig.update_layout(yaxis={"categoryorder": "total ascending"})
-        plot(style(fig, height=max(320, 28 * len(df)), horizontal=True))
-    sql_box("Q04")
+    with panel("Q04", "Hosts managing the largest number of listings"):
+        c1, c2 = st.columns(2)
+        min_listings = c1.slider("Minimum listings per host", 2, 50, 10, key="q04m")
+        top_n = c2.slider("Hosts shown", 5, 40, 15, key="q04t")
+        df = show("Q04", province=P, min_listings=min_listings, top_n=top_n)
+        if not empty(df):
+            fig = px.bar(df, x="listings", y="host", orientation="h",
+                         hover_data=["pct_of_supply", "municipalities", "avg_price"],
+                         labels={"listings": "Listings", "host": ""})
+            fig.update_traces(marker_color=SERIES[0])
+            plot_ranking(fig, len(df))
 
-    st.divider()
-    header("Q02", "Most reviewed listings in each province")
-    top2 = st.slider("Listings per province", 1, 20, 5, key="q02t")
-    df = show("Q02", province=P, top_n=top2)
-    if not empty(df):
-        st.dataframe(df, use_container_width=True, hide_index=True)
-    sql_box("Q02")
+    with panel("Q02", "Most reviewed listings in each province"):
+        top_n = st.slider("Listings per province", 1, 20, 5, key="q02t")
+        df = show("Q02", province=P, top_n=top_n)
+        if not empty(df):
+            st.dataframe(df, use_container_width=True, hide_index=True)
 
 # ------------------------------------------------- AMENITIES AND LICENCES
-with tabs[3]:
-    header("Q06", "Price-per-guest premium associated with each amenity")
-    c1, c2 = st.columns(2)
-    min_l6 = c1.slider("Minimum listings in each group", 20, 1000, 100, key="q06m")
-    top6 = c2.slider("Amenities shown", 5, 40, 15, key="q06t")
-    df = show("Q06", province=P, room_type=R, min_listings=min_l6, top_n=top6)
-    if not empty(df):
-        fig = px.bar(df, x="premium_pct", y="amenity", orientation="h",
-                     hover_data=["listings_with", "avg_price_guest_with", "avg_price_guest_without"],
-                     labels={"premium_pct": "Difference in average price per guest (%)", "amenity": ""})
-        fig.update_traces(marker_color=SERIES[0])
-        fig.update_layout(yaxis={"categoryorder": "total ascending"})
-        plot(style(fig, height=max(320, 28 * len(df)), horizontal=True))
-    sql_box("Q06")
+with tab_amenities:
+    with panel("Q06", "Price-per-guest premium associated with each amenity"):
+        c1, c2 = st.columns(2)
+        min_listings = c1.slider("Minimum listings in each group", 20, 1000, 100, key="q06m")
+        top_n = c2.slider("Amenities shown", 5, 40, 15, key="q06t")
+        df = show("Q06", province=P, room_type=R, min_listings=min_listings, top_n=top_n)
+        if not empty(df):
+            fig = px.bar(df, x="premium_pct", y="amenity", orientation="h",
+                         hover_data=["listings_with", "avg_price_guest_with", "avg_price_guest_without"],
+                         labels={"premium_pct": "Difference in average price per guest (%)", "amenity": ""})
+            fig.update_traces(marker_color=SERIES[0])
+            plot_ranking(fig, len(df))
 
-    st.divider()
-    header("Q11", "Tourist-registry licence status by municipality")
-    c1, c2 = st.columns(2)
-    min_l11 = c1.slider("Minimum listings per municipality", 5, 200, 20, key="q11m")
-    top11 = c2.slider("Municipalities shown", 5, 40, 15, key="q11t")
-    df = show("Q11", province=P, room_type=R, min_listings=min_l11, top_n=top11)
-    if not empty(df):
-        fig = px.bar(df, x="municipality", y=["registered", "exempt", "no_license"],
-                     labels={"value": "Listings", "municipality": "", "variable": ""})
-        fig.for_each_trace(lambda t: t.update(name={"registered": "Registered", "exempt": "Exempt",
-                                                    "no_license": "No licence shown"}[t.name]))
-        plot(style(fig))
-    sql_box("Q11")
+    with panel("Q11", "Tourist-registry licence status by municipality"):
+        c1, c2 = st.columns(2)
+        min_listings = c1.slider("Minimum listings per municipality", 5, 200, 20, key="q11m")
+        top_n = c2.slider("Municipalities shown", 5, 40, 15, key="q11t")
+        df = show("Q11", province=P, room_type=R, min_listings=min_listings, top_n=top_n)
+        if not empty(df):
+            fig = px.bar(df, x="municipality", y=["registered", "exempt", "no_license"],
+                         labels={"value": "Listings", "municipality": "", "variable": ""})
+            rename_series(fig, {"registered": "Registered", "exempt": "Exempt", "no_license": "No licence shown"})
+            plot(style(fig))
 
 # ------------------------------------------------------------------ GUESTS
-with tabs[4]:
-    header("Q10", "Number of reviews written per guest")
-    year10 = st.slider("Reviews written since", 2011, 2026, 2011, key="q10y")
-    df = show("Q10", year_from=year10)
-    if not empty(df):
-        fig = px.bar(df, x="reviews_written", y="reviewers", log_y=True,
-                     hover_data=["pct_reviewers", "avg_days_between_reviews"],
-                     labels={"reviewers": "Guests (logarithmic scale)", "reviews_written": "Reviews written"})
-        fig.update_traces(marker_color=SERIES[0])
-        plot(style(fig, height=360))
-        st.dataframe(df, use_container_width=True, hide_index=True)
-    sql_box("Q10")
+with tab_guests:
+    with panel("Q10", "Number of reviews written per guest"):
+        year_from = st.slider("Reviews written since", 2011, 2026, 2011, key="q10y")
+        df = show("Q10", year_from=year_from)
+        if not empty(df):
+            fig = px.bar(df, x="reviews_written", y="reviewers", log_y=True,
+                         hover_data=["pct_reviewers", "avg_days_between_reviews"],
+                         labels={"reviewers": "Guests (logarithmic scale)", "reviews_written": "Reviews written"})
+            fig.update_traces(marker_color=SERIES[0])
+            plot(style(fig, height=360))
+            st.dataframe(df, use_container_width=True, hide_index=True)
 
 # ------------------------------------------------------- PRICE SIMULATION
-with tabs[5]:
-    header("Q09", "Price change simulation for one municipality")
-    st.markdown("The simulation executes a real `UPDATE` inside a transaction, reads the new figures "
-                "and then issues `ROLLBACK`. The stored data is never modified.")
-    c1, c2 = st.columns(2)
-    default_idx = MUNICIPALITIES.index("Donostia-San Sebastián") if "Donostia-San Sebastián" in MUNICIPALITIES else 0
-    mun = c1.selectbox("Municipality", MUNICIPALITIES, index=default_idx)
-    pct = c2.number_input("Price change (%)", min_value=-90.0, max_value=200.0, value=10.0, step=5.0)
-    if st.button("Run simulation", type="primary"):
-        try:
-            cols, rows, updated = run_transaction_query(conn_ok(), QUERIES["Q09"],
-                                                        {"municipality": mun, "pct_change": pct})
-            st.success(f"The UPDATE affected {updated} listings. The transaction was rolled back.")
-            st.dataframe(pd.DataFrame(rows, columns=cols), use_container_width=True, hide_index=True)
-        except psycopg2.Error as e:
-            st.error(f"Database error: {e.pgerror or e}")
-    sql_box("Q09")
+with tab_simulation:
+    with panel("Q09", "Price change simulation for one municipality"):
+        st.markdown("<div class='q-note'>The simulation runs a real <code>UPDATE</code> inside a transaction, "
+                    "reads the new figures and then issues <code>ROLLBACK</code>. The stored data is never "
+                    "modified.</div>", unsafe_allow_html=True)
+        c1, c2 = st.columns(2)
+        default_idx = MUNICIPALITIES.index("Donostia-San Sebastián") if "Donostia-San Sebastián" in MUNICIPALITIES else 0
+        municipality = c1.selectbox("Municipality", MUNICIPALITIES, index=default_idx)
+        pct_change = c2.number_input("Price change (%)", min_value=-90.0, max_value=200.0, value=10.0, step=5.0)
+        if st.button("Run simulation", type="primary"):
+            try:
+                cols, rows, updated = run_transaction_query(conn_ok(), QUERIES["Q09"],
+                                                            {"municipality": municipality, "pct_change": pct_change})
+                st.success(f"The UPDATE affected {updated} listings. The transaction was rolled back.")
+                st.dataframe(pd.DataFrame(rows, columns=cols), use_container_width=True, hide_index=True)
+            except psycopg2.Error as e:
+                reset_conn()
+                st.error(f"Database error: {e.pgerror or e}")
 
-st.markdown("<div class='footer'>Data: Inside Airbnb, Euskadi, 25 September 2026, licensed under CC BY 4.0. "
-            "TECNUN, Project B. Aitor Marcalain and Iker Elias.</div>", unsafe_allow_html=True)
+st.markdown("<div class='footer'><span>Data: Inside Airbnb, Euskadi, 25 September 2026, licensed under CC BY 4.0.</span>"
+            "<span>TECNUN, Project B. Aitor Marcalain and Iker Elias.</span></div>", unsafe_allow_html=True)

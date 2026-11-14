@@ -6,16 +6,19 @@
 -- techniques: CTE, window function LEAD() OVER (PARTITION BY ... ORDER BY ...), GROUP BY, window over an aggregate (SUM(COUNT(*)) OVER ())
 -- params: {"year_from": 2011}
 WITH rv AS (
+    -- Step 1: each review with the date of the SAME reviewer's next review (LEAD)
     SELECT r.reviewer_id, r.review_date,
            LEAD(r.review_date) OVER (PARTITION BY r.reviewer_id ORDER BY r.review_date, r.review_id) AS next_review_date
     FROM airbnb.review r
     WHERE r.review_date >= make_date(%(year_from)s, 1, 1)
 ),
 per_reviewer AS (
+    -- Step 2: per reviewer, how many reviews and the average days between them
     SELECT reviewer_id, COUNT(*) AS n_reviews, AVG(next_review_date - review_date) AS avg_gap_days
     FROM rv
     GROUP BY reviewer_id
 )
+-- Step 3: group reviewers by reviews written; SUM(COUNT(*)) OVER () is the grand total
 SELECT CASE WHEN n_reviews >= 5 THEN '5+' ELSE n_reviews::text END AS reviews_written,
        COUNT(*)                                                 AS reviewers,
        ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 2)        AS pct_reviewers,

@@ -26,6 +26,7 @@ FILES = [
     ("data/calendar.csv.gz", "calendar.csv"),        # disponibilidad diaria de cada anuncio (365 días)
     ("data/reviews.csv.gz", "reviews.csv"),          # reseñas con texto completo
     ("visualisations/neighbourhoods.csv", "neighbourhoods.csv"),  # municipios y provincias
+    ("visualisations/neighbourhoods.geojson", "neighbourhoods.geojson"),  # fronteras de municipios (mapa de la app)
 ]
 
 # No se importa db.py: este paso no necesita psycopg2 ni .env
