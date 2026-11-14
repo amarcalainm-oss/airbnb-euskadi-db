@@ -29,5 +29,5 @@ WHERE l.price < tm.median_price
   AND (SELECT COUNT(*) FROM airbnb.listing_review lr WHERE lr.listing_id = l.listing_id) >= %(min_reviews)s
   AND (%(province)s  IS NULL OR p.name      = %(province)s)
   AND (%(room_type)s IS NULL OR l.room_type = %(room_type)s)
-ORDER BY l.score_value DESC, pct_vs_town_median ASC
+ORDER BY l.score_value DESC, pct_vs_town_median ASC, l.listing_id   -- listing_id desempata: orden siempre igual
 LIMIT %(top_n)s;

@@ -12,11 +12,18 @@ OUT = ROOT / "docs" / "queries_results.md"
 SAMPLE = 10
 
 
+def md_cell(v) -> str:
+    """Valor -> celda Markdown (NULL visible, sin '|' ni saltos, máx. 60 caracteres)."""
+    if v is None:
+        return "NULL"
+    return str(v).replace("|", "\\|").replace("\n", " ")[:60]
+
+
 def md_table(cols, rows) -> list[str]:
-    def f(v):
-        return "NULL" if v is None else str(v).replace("|", "\\|").replace("\n", " ")[:60]
-    return ["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)] + \
-           ["| " + " | ".join(f(v) for v in r) + " |" for r in rows[:SAMPLE]]
+    """Tabla Markdown con las SAMPLE primeras filas."""
+    lines = ["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
+    lines += ["| " + " | ".join(md_cell(v) for v in r) + " |" for r in rows[:SAMPLE]]
+    return lines
 
 
 def main() -> None:

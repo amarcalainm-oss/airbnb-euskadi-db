@@ -62,7 +62,7 @@ _15 rows returned._
 
 **Why it is meaningful:** The median (not the mean) is robust to luxury outliers, and HAVING removes towns with 2-3 listings whose price says nothing about the market.
 
-_Execution time: 284 ms_
+_Execution time: 44 ms_
 
 ## Q02 - Most reviewed listings per province (ranking)
 
@@ -112,7 +112,7 @@ _15 rows returned._
 
 **Why it is meaningful:** The number of reviews is the best public proxy for the number of stays, so the ranking shows which listings capture most of the demand in each province.
 
-_Execution time: 1266 ms_
+_Execution time: 249 ms_
 
 ## Q03 - Monthly demand trend (reviews per month, year-over-year)
 
@@ -173,7 +173,7 @@ _129 rows returned._
 
 **Why it is meaningful:** Reviews are written after a stay, so this curve shows seasonality, the COVID collapse and the recovery of tourist demand in the Basque Country.
 
-_Execution time: 3685 ms_
+_Execution time: 1165 ms_
 
 ## Q04 - Multi-listing hosts (market concentration)
 
@@ -224,7 +224,7 @@ _15 rows returned._
 
 **Why it is meaningful:** A few professional operators holding a large share of listings is a key argument in the debate about tourist flats and housing.
 
-_Execution time: 29 ms_
+_Execution time: 31 ms_
 
 ## Q05 - Booked/blocked days per month for the next year
 
@@ -269,7 +269,7 @@ _39 rows returned._
 
 **Why it is meaningful:** An unavailable day is either booked or blocked by the host, so this curve shows the expected busy seasons (summer, holidays) months in advance.
 
-_Execution time: 7082 ms_
+_Execution time: 847 ms_
 
 ## Q06 - Price premium of each amenity
 
@@ -330,7 +330,7 @@ _15 rows returned._
 
 **Why it is meaningful:** Using price per guest (price / accommodates) removes most of the size effect, so hosts can see which amenities go with higher prices.
 
-_Execution time: 1085 ms_
+_Execution time: 135 ms_
 
 ## Q07 - Superhosts vs regular hosts
 
@@ -373,7 +373,7 @@ _6 rows returned._
 
 **Why it is meaningful:** It checks whether the "Superhost" badge reflects a measurable difference in guest satisfaction and price, using only listings with enough reviews.
 
-_Execution time: 1800 ms_
+_Execution time: 65 ms_
 
 ## Q08 - Weekend vs weekday occupancy by municipality
 
@@ -428,7 +428,7 @@ _15 rows returned._
 
 **Why it is meaningful:** A large weekend gap marks short-break destinations (city/beach getaways), while a small gap suggests longer holiday or business stays.
 
-_Execution time: 3614 ms_
+_Execution time: 3060 ms_
 
 ## Q09 - What-if: price change in a municipality (UPDATE inside a transaction)
 
@@ -470,7 +470,7 @@ _UPDATE affected 1395 rows; the transaction then ended with ROLLBACK._
 
 **Why it is meaningful:** It runs a real UPDATE inside a transaction, measures the effect and then ROLLBACKs, so the database is never left modified: a safe "simulation" mode.
 
-_Execution time: 286 ms_
+_Execution time: 103 ms_
 
 ## Q10 - Repeat guests: how many reviews does each reviewer write?
 
@@ -514,7 +514,7 @@ _5 rows returned._
 
 **Why it is meaningful:** The share of repeat guests and the time between visits measure loyalty to the destination, not just to one listing.
 
-_Execution time: 3293 ms_
+_Execution time: 1805 ms_
 
 ## Q11 - Tourist-registry licence status by municipality
 
@@ -561,7 +561,7 @@ _15 rows returned._
 
 **Why it is meaningful:** Basque law requires tourist flats to show a registration number, so listings without one point to where regulation is least enforced.
 
-_Execution time: 103 ms_
+_Execution time: 92 ms_
 
 ## Q12 - Best-value listings (cheaper than their town, top rated)
 
@@ -595,7 +595,7 @@ WHERE l.price < tm.median_price
   AND (SELECT COUNT(*) FROM airbnb.listing_review lr WHERE lr.listing_id = l.listing_id) >= %(min_reviews)s
   AND (%(province)s  IS NULL OR p.name      = %(province)s)
   AND (%(room_type)s IS NULL OR l.room_type = %(room_type)s)
-ORDER BY l.score_value DESC, pct_vs_town_median ASC
+ORDER BY l.score_value DESC, pct_vs_town_median ASC, l.listing_id   -- listing_id desempata: orden siempre igual
 LIMIT %(top_n)s;
 ```
 
@@ -618,7 +618,7 @@ _20 rows returned._
 
 **Why it is meaningful:** Comparing each listing with its own municipality and room type (not with the whole region) finds real bargains for a traveller.
 
-_Execution time: 346 ms_
+_Execution time: 64 ms_
 
 ## Q13 - Map of listings by price quintile
 
@@ -667,4 +667,4 @@ _5540 rows returned._
 
 **Why it is meaningful:** Splitting the market into price fifths in SQL and placing every listing on the map shows how price varies with location: the coast and the three capitals against the inland municipalities.
 
-_Execution time: 1046 ms_
+_Execution time: 228 ms_

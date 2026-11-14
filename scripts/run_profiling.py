@@ -14,14 +14,15 @@ OUT = ROOT / "docs" / "profiling_results.md"
 MAX_ROWS = 60
 
 
-def split_queries(text: str):
+def split_queries(text: str) -> list[tuple[str, str]]:
     """Divide un fichero en bloques que empiezan por '-- @query <título>'."""
     parts = re.split(r"^-- @query (.+)$", text, flags=re.M)
     # parts = [preámbulo, título1, sql1, título2, sql2, ...]
     return [(parts[i].strip(), parts[i + 1].strip()) for i in range(1, len(parts), 2)]
 
 
-def fmt(v) -> str:
+def md_cell(v) -> str:
+    """Valor -> celda Markdown (NULL visible, sin '|' ni saltos de línea)."""
     if v is None:
         return "NULL"
     return str(v).replace("|", "\\|").replace("\n", " ")
@@ -44,7 +45,7 @@ def main() -> None:
                 cols = [d.name for d in cur.description]
                 rows = cur.fetchmany(MAX_ROWS)
             lines += [f"### {title}", "", "| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
-            lines += ["| " + " | ".join(fmt(v) for v in r) + " |" for r in rows]
+            lines += ["| " + " | ".join(md_cell(v) for v in r) + " |" for r in rows]
             lines.append("")
             print(f"  ok  {path.name}: {title}")
     conn.rollback()  # solo lectura

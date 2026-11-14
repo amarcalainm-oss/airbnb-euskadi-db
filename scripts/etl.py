@@ -55,20 +55,32 @@ RULES = {
 
 BR_RE = re.compile(r"<br\s*/?>", re.I)
 
+TABLES = ["province", "municipality", "host", "property_type", "listing", "amenity",
+          "listing_amenity", "calendar_day", "reviewer", "review", "listing_review"]
+
+# Columnas de listings.csv a las que se aplica R01 (mojibake)
+LISTING_TEXT_COLS = ["name", "description", "host_name", "host_location", "host_about",
+                     "neighbourhood_cleansed", "neighbourhood_group_cleansed", "property_type"]
+
+# Columnas cargadas de listings.csv en las que se cuentan celdas vacías (R02)
+LISTING_NULLABLE_COLS = ["description", "host_location", "host_about", "price", "minimum_nights",
+                         "maximum_nights", "has_availability", "bathrooms_text", "bedrooms", "beds",
+                         "license", "source", "estimated_revenue_l365d", "review_scores_rating"]
+
 
 # ----------------------------------------------------------------- helpers
-def fix_mojibake(s: str | None, rule_key: str | None = None) -> str | None:
-    """'GuipÃºzcoa' es 'Guipúzcoa' codificado en UTF-8 y leído como Latin-1.
-    Deshacemos el error: volvemos a bytes Latin-1 y los leemos como UTF-8.
-    Si el texto ya era correcto, esa conversión falla y lo dejamos igual."""
+def fix_mojibake(s: str | None) -> str | None:
+    """R01. 'GuipÃºzcoa' es 'Guipúzcoa' codificado en UTF-8 y leído como Latin-1:
+    volvemos a bytes Latin-1 y los leemos como UTF-8. Si el texto ya era
+    correcto, esa conversión falla y lo dejamos igual."""
     if not s:
         return s
     try:
         fixed = s.encode("latin-1").decode("utf-8")
     except (UnicodeEncodeError, UnicodeDecodeError):
         return s
-    if fixed != s and rule_key:
-        stats[rule_key] += 1
+    if fixed != s:
+        stats["R01"] += 1
     return fixed
 
 
@@ -108,14 +120,19 @@ def parse_price(s: str | None) -> Decimal | None:
     return Decimal(s[1:].replace(",", ""))
 
 
-def parse_bathrooms(text: str | None):
+def parse_bathrooms(text: str | None) -> tuple[Decimal | None, bool | None]:
     """'1.5 shared baths' -> (1.5, True); 'Half-bath' -> (0.5, None);
     '2 baths' -> (2, None)  (no dice si es compartido -> NULL, no se inventa)."""
     t = nz(text)
     if t is None:
         return None, None
     low = t.lower()
-    shared = True if "shared" in low else False if "private" in low else None
+    if "shared" in low:
+        shared = True
+    elif "private" in low:
+        shared = False
+    else:
+        shared = None
     if "half-bath" in low:
         n = Decimal("0.5")
     elif low == "no bathroom":
@@ -135,24 +152,46 @@ def round_coord(s: str) -> Decimal:
     return d.quantize(Decimal("0.000001"))
 
 
+def total_months(years: str, months: str) -> int:
+    """R10: 'años + meses' -> meses totales."""
+    return int(years) * 12 + int(months)
+
+
+def csv_cell(v):
+    """Valor Python -> celda CSV para COPY. None -> celda vacía sin comillas = NULL."""
+    if v is None:
+        return ""
+    if v is True:
+        return "t"
+    if v is False:
+        return "f"
+    return v
+
+
 def copy_rows(cur, table: str, columns: list[str], rows) -> int:
-    """Inserta muchas filas rápido con COPY ... FROM STDIN (sigue dentro de la
-    MISMA transacción). None se escribe como celda vacía sin comillas = NULL."""
-    buf = io.StringIO()
-    w = csv.writer(buf, lineterminator="\n")
-    n = 0
+    """Inserta muchas filas rápido con COPY ... FROM STDIN, en bloques de
+    200.000 filas (sigue dentro de la MISMA transacción). Devuelve cuántas."""
     sql = f"COPY airbnb.{table} ({', '.join(columns)}) FROM STDIN WITH (FORMAT csv)"
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    n = 0
     for row in rows:
-        w.writerow(["" if v is None else ("t" if v is True else "f" if v is False else v) for v in row])
+        writer.writerow([csv_cell(v) for v in row])
         n += 1
         if n % 200_000 == 0:
             buf.seek(0)
             cur.copy_expert(sql, buf)
-            buf = io.StringIO()
-            w = csv.writer(buf, lineterminator="\n")
+            buf.seek(0)
+            buf.truncate()
     buf.seek(0)
     cur.copy_expert(sql, buf)
     return n
+
+
+def insert_returning_id(cur, sql: str, params: tuple) -> int:
+    """Ejecuta un INSERT ... RETURNING <id> y devuelve el id generado."""
+    cur.execute(sql, params)
+    return cur.fetchone()[0]
 
 
 def read_csv(name: str):
@@ -163,37 +202,29 @@ def read_csv(name: str):
 # ---------------------------------------------------------- carga por tabla
 def load_geography(cur) -> dict[str, int]:
     """province y municipality desde neighbourhoods.csv. Devuelve {municipio: id}."""
-    rows = [(fix_mojibake(r["neighbourhood_group"], "R01"), fix_mojibake(r["neighbourhood"], "R01"))
+    rows = [(fix_mojibake(r["neighbourhood_group"]), fix_mojibake(r["neighbourhood"]))
             for r in read_csv("neighbourhoods")]
-    prov_ids = {}
-    for prov in sorted({p for p, _ in rows}):
-        cur.execute("INSERT INTO airbnb.province (name) VALUES (%s) RETURNING province_id", (prov,))
-        prov_ids[prov] = cur.fetchone()[0]
-    mun_ids = {}
-    for prov, mun in rows:
-        cur.execute("INSERT INTO airbnb.municipality (name, province_id) VALUES (%s, %s) RETURNING municipality_id",
-                    (mun, prov_ids[prov]))
-        mun_ids[mun] = cur.fetchone()[0]
+    prov_ids = {
+        prov: insert_returning_id(cur, "INSERT INTO airbnb.province (name) VALUES (%s) RETURNING province_id",
+                                  (prov,))
+        for prov in sorted({p for p, _ in rows})
+    }
+    mun_ids = {
+        mun: insert_returning_id(cur, "INSERT INTO airbnb.municipality (name, province_id) "
+                                      "VALUES (%s, %s) RETURNING municipality_id", (mun, prov_ids[prov]))
+        for prov, mun in rows
+    }
     print(f"  province: {len(prov_ids)}  municipality: {len(mun_ids)}")
     return mun_ids
 
 
-LISTING_TEXT_COLS = ["name", "description", "host_name", "host_location", "host_about",
-                     "neighbourhood_cleansed", "neighbourhood_group_cleansed", "property_type"]
-
-
-def load_listings(cur, mun_ids: dict[str, int]) -> set[int]:
+def load_listings(cur, mun_ids: dict[str, int]) -> None:
     raw = list(read_csv("listings"))
-
-    # R02: contar celdas vacías en las columnas que SÍ se cargan
-    used = ["description", "host_location", "host_about", "price", "minimum_nights", "maximum_nights",
-            "has_availability", "bathrooms_text", "bedrooms", "beds", "license", "source",
-            "estimated_revenue_l365d", "review_scores_rating"]
     for r in raw:
-        if any(nz(r[c]) is None for c in used):
+        if any(nz(r[c]) is None for c in LISTING_NULLABLE_COLS):
             stats["R02"] += 1
         for c in LISTING_TEXT_COLS:
-            r[c] = fix_mojibake(r[c], "R01")
+            r[c] = fix_mojibake(r[c])
 
     # --- host (1 fila por host_id; los atributos son idénticos en todas sus filas)
     hosts = {}
@@ -201,8 +232,8 @@ def load_listings(cur, mun_ids: dict[str, int]) -> set[int]:
         hid = int(r["host_id"])
         if hid in hosts:
             continue
-        months_host = int(r["hosts_time_as_host_years"]) * 12 + int(r["hosts_time_as_host_months"])
-        months_user = int(r["hosts_time_as_user_years"]) * 12 + int(r["hosts_time_as_user_months"])
+        months_host = total_months(r["hosts_time_as_host_years"], r["hosts_time_as_host_months"])
+        months_user = total_months(r["hosts_time_as_user_years"], r["hosts_time_as_user_months"])
         stats["R10"] += 1
         hosts[hid] = (hid, int(r["host_profile_id"]), r["host_name"].strip(), nz(r["host_location"]),
                       nz(r["host_about"]), to_bool(r["host_is_superhost"]), to_bool(r["host_has_profile_pic"]),
@@ -213,10 +244,11 @@ def load_listings(cur, mun_ids: dict[str, int]) -> set[int]:
     stats["R04"] += len(raw)
 
     # --- property_type
-    pt_ids = {}
-    for pt in sorted({r["property_type"] for r in raw}):
-        cur.execute("INSERT INTO airbnb.property_type (name) VALUES (%s) RETURNING property_type_id", (pt,))
-        pt_ids[pt] = cur.fetchone()[0]
+    pt_ids = {
+        pt: insert_returning_id(cur, "INSERT INTO airbnb.property_type (name) VALUES (%s) "
+                                     "RETURNING property_type_id", (pt,))
+        for pt in sorted({r["property_type"] for r in raw})
+    }
 
     # --- listing
     def listing_rows():
@@ -270,15 +302,14 @@ def load_listings(cur, mun_ids: dict[str, int]) -> set[int]:
         for a in dict.fromkeys(clean):  # quita repetidos conservando el orden
             names.add(a)
             pairs.append((int(r["id"]), a))
-    am_ids = {}
-    for a in sorted(names):
-        cur.execute("INSERT INTO airbnb.amenity (name) VALUES (%s) RETURNING amenity_id", (a,))
-        am_ids[a] = cur.fetchone()[0]
+    am_ids = {
+        a: insert_returning_id(cur, "INSERT INTO airbnb.amenity (name) VALUES (%s) RETURNING amenity_id", (a,))
+        for a in sorted(names)
+    }
     copy_rows(cur, "listing_amenity", ["listing_id", "amenity_id"], ((l, am_ids[a]) for l, a in pairs))
 
     print(f"  host: {len(hosts)}  property_type: {len(pt_ids)}  listing: {n}  "
           f"amenity: {len(am_ids)}  listing_amenity: {len(pairs)}")
-    return {int(r["id"]) for r in raw}
 
 
 def load_calendar(cur) -> None:
@@ -300,7 +331,7 @@ def load_reviews(cur) -> None:
     links = []
     for r in read_csv("reviews"):
         rid, uid, day = int(r["id"]), int(r["reviewer_id"]), r["date"]
-        name = fix_mojibake(r["reviewer_name"].strip(), "R01")
+        name = fix_mojibake(r["reviewer_name"].strip())
         names_seen.setdefault(uid, set()).add(name)
         if uid not in reviewers or day >= reviewers[uid][0]:
             reviewers[uid] = (day, name)
@@ -308,14 +339,14 @@ def load_reviews(cur) -> None:
         if rid in reviews:
             stats["R16"] += 1
             continue
-        text = fix_mojibake(r["comments"], "R01")
+        text = fix_mojibake(r["comments"])
         if BR_RE.search(text):
             stats["R09"] += 1
             text = BR_RE.sub("\n", text)
         reviews[rid] = (rid, uid, day, text)
     stats["R15"] = sum(1 for v in names_seen.values() if len(v) > 1)
 
-    copy_rows(cur, "reviewer", ["reviewer_id", "name"], ((k, v[1]) for k, v in reviewers.items()))
+    copy_rows(cur, "reviewer", ["reviewer_id", "name"], ((uid, name) for uid, (_, name) in reviewers.items()))
     copy_rows(cur, "review", ["review_id", "reviewer_id", "review_date", "comments"], reviews.values())
     copy_rows(cur, "listing_review", ["listing_id", "review_id"], links)
     print(f"  reviewer: {len(reviewers)}  review: {len(reviews)}  listing_review: {len(links)}")
@@ -323,20 +354,21 @@ def load_reviews(cur) -> None:
 
 # ------------------------------------------------------------------ main
 def table_counts(cur) -> list[tuple[str, int]]:
-    out = []
-    for t in ["province", "municipality", "host", "property_type", "listing", "amenity",
-              "listing_amenity", "calendar_day", "reviewer", "review", "listing_review"]:
+    counts = []
+    for t in TABLES:
         cur.execute(f"SELECT COUNT(*) FROM airbnb.{t}")
-        out.append((t, cur.fetchone()[0]))
-    return out
+        counts.append((t, cur.fetchone()[0]))
+    return counts
 
 
-def write_report(counts) -> None:
+def write_report(counts: list[tuple[str, int]]) -> None:
     lines = ["# Informe de limpieza (ETL)", "",
              "_Generado automáticamente por `scripts/etl.py`._", "",
              "## Reglas de limpieza y filas afectadas", "",
              "| Regla | Descripción | Filas afectadas |", "|---|---|---|"]
-    lines += [f"| {k} | {v.replace('|', chr(92) + '|')} | {stats.get(k, 0):,} |" for k, v in RULES.items()]
+    for key, desc in RULES.items():
+        desc = desc.replace("|", "\\|")  # un '|' sin escapar rompería la tabla Markdown
+        lines.append(f"| {key} | {desc} | {stats.get(key, 0):,} |")
     lines += ["", "## Filas cargadas por tabla", "", "| Tabla | Filas |", "|---|---|"]
     lines += [f"| {t} | {n:,} |" for t, n in counts]
     REPORT.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -361,16 +393,25 @@ def main() -> None:
                 cur.execute("INSERT INTO airbnb.listing_review (listing_id, review_id) VALUES (-1, -1)")
             counts = table_counts(cur)
         conn.commit()                # <-- solo aquí se guarda todo
+        # Tras una carga masiva PostgreSQL aún no tiene estadísticas de las tablas y elige
+        # planes muy lentos (una consulta de 4 s pasó a varios minutos). ANALYZE las calcula.
+        # Va fuera de la transacción de carga porque solo actualiza estadísticas, no datos.
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute("ANALYZE")
         write_report(counts)
         print(f"\nCOMMIT correcto en {time.time()-t0:.0f}s. Informe: {REPORT.relative_to(ROOT)}")
     except Exception as e:
         conn.rollback()              # <-- se deshace TODO lo insertado
         print(f"\nERROR: {type(e).__name__}: {e}".rstrip())
         print("ROLLBACK ejecutado. Comprobamos que no ha quedado nada cargado:")
-        with get_connection() as check, check.cursor() as cur:
-            for t, n in table_counts(cur):
-                print(f"    {t:16} {n} filas")
-        check.close()
+        check = get_connection()
+        try:
+            with check.cursor() as cur:
+                for t, n in table_counts(cur):
+                    print(f"    {t:16} {n} filas")
+        finally:
+            check.close()
         sys.exit(1)
     finally:
         conn.close()

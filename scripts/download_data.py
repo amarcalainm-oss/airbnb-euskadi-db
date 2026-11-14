@@ -28,7 +28,9 @@ FILES = [
     ("visualisations/neighbourhoods.csv", "neighbourhoods.csv"),  # municipios y provincias
 ]
 
-RAW_DIR = Path(__file__).resolve().parent.parent / "data" / "raw"
+# No se importa db.py: este paso no necesita psycopg2 ni .env
+ROOT = Path(__file__).resolve().parent.parent
+RAW_DIR = ROOT / "data" / "raw"
 
 
 def download(remote: str, local_name: str, force: bool) -> None:
@@ -48,7 +50,7 @@ def download(remote: str, local_name: str, force: bool) -> None:
         tmp.unlink()
     else:
         tmp.replace(target)
-    print(f"  [save] {target.relative_to(RAW_DIR.parent.parent)} ({target.stat().st_size/1e6:.1f} MB)")
+    print(f"  [save] {target.relative_to(ROOT)} ({target.stat().st_size/1e6:.1f} MB)")
 
 
 def main() -> None:

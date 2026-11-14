@@ -15,6 +15,7 @@ RAW_DIR = ROOT / "data" / "raw"
 SQL_DIR = ROOT / "sql"
 
 load_dotenv(ROOT / ".env")
+DB_NAME = os.getenv("PGDATABASE", "airbnb_euskadi")
 
 
 def get_connection(dbname: str | None = None):
@@ -23,7 +24,7 @@ def get_connection(dbname: str | None = None):
     return psycopg2.connect(
         host=os.getenv("PGHOST", "localhost"),
         port=os.getenv("PGPORT", "5432"),
-        dbname=dbname or os.getenv("PGDATABASE", "airbnb_euskadi"),
+        dbname=dbname or DB_NAME,
         user=os.getenv("PGUSER", "postgres"),
         password=os.getenv("PGPASSWORD", ""),
     )

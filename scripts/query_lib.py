@@ -38,11 +38,15 @@ def load_queries() -> dict[str, dict]:
     return out
 
 
+def merge_params(q: dict, params: dict | None) -> dict:
+    """Parámetros por defecto de la consulta, sobrescritos por los recibidos."""
+    return {**q["params"], **(params or {})}
+
+
 def run_query(conn, q: dict, params: dict | None = None):
     """Ejecuta una consulta de lectura. Devuelve (nombres_columnas, filas)."""
-    p = {**q["params"], **(params or {})}
     with conn.cursor() as cur:
-        cur.execute(q["sql"], p)
+        cur.execute(q["sql"], merge_params(q, params))
         cols = [d.name for d in cur.description]
         rows = cur.fetchall()
     conn.rollback()  # cierra la transacción de lectura
@@ -52,7 +56,7 @@ def run_query(conn, q: dict, params: dict | None = None):
 def run_transaction_query(conn, q: dict, params: dict | None = None, commit: bool = False):
     """Q09: before -> UPDATE -> after dentro de UNA transacción.
     Por defecto termina con ROLLBACK, así la base de datos no cambia."""
-    p = {**q["params"], **(params or {})}
+    p = merge_params(q, params)
     steps = q["steps"]
     try:
         with conn.cursor() as cur:
