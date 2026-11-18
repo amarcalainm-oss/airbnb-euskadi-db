@@ -13,6 +13,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from db import RAW_DIR, get_connection                               # noqa: E402
 from query_lib import load_queries, run_query, run_transaction_query  # noqa: E402
 
+# Plotly trata Decimal como categoría: NUMERIC llega como float
+psycopg2.extensions.register_type(psycopg2.extensions.new_type(
+    psycopg2.extensions.DECIMAL.values, "NUMERIC_FLOAT", lambda v, cur: None if v is None else float(v)))
+
 st.set_page_config(page_title="Airbnb Euskadi - Database analysis", layout="wide")
 
 QUERIES = load_queries()
@@ -397,7 +401,7 @@ try:
     c.rollback()
     where = f" in {province}" if P else " in Euskadi"
     kind = f" ({room.lower()})" if R else ""
-    price = f"<b>{med_price} EUR</b> per night" if med_price is not None else "no published price"
+    price = f"<b>{med_price:.0f} EUR</b> per night" if med_price is not None else "no published price"
     st.markdown(f"<div class='lede'><b>{n_list:,}</b> listings{kind}{where}, run by <b>{n_hosts:,}</b> hosts, "
                 f"with a median of {price} and <b>{n_rev:,}</b> guest reviews.</div>", unsafe_allow_html=True)
 except Exception as e:  # noqa: BLE001
