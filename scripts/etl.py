@@ -16,22 +16,22 @@ REPORT = ROOT / "docs" / "cleaning_report.md"
 stats: Counter = Counter()
 
 RULES = {
-    "R01": "Texto con doble codificación UTF-8 (mojibake, p. ej. 'GuipÃºzcoa' -> 'Guipúzcoa') reparado (nº de celdas)",
-    "R02": "Cadena vacía convertida en NULL (anuncios con al menos una celda vacía en columnas cargadas)",
-    "R03": "Precio en texto '$1,234.00' convertido a NUMERIC 1234.00",
-    "R04": "Booleanos 't'/'f' convertidos a TRUE/FALSE (anuncios)",
-    "R05": "bathrooms_text separado en bathrooms (número) y bathroom_shared (booleano)",
-    "R06": "Coordenadas con más de 6 decimales redondeadas a 6 (≈0,1 m)",
-    "R07": "Etiquetas HTML <br /> sustituidas por ' | ' en license",
-    "R08": "Etiquetas HTML <br> sustituidas por salto de línea en description",
-    "R09": "Etiquetas HTML <br> sustituidas por salto de línea en reviews.comments",
-    "R10": "Antigüedad del anfitrión 'años + meses' convertida a meses totales",
-    "R11": "listing con minimum_nights > maximum_nights: ambos se dejan a NULL (no se sabe cuál es erróneo)",
-    "R12": "calendar con minimum_nights > maximum_nights: ambos se dejan a NULL",
-    "R13": "amenities: lista JSON separada en filas de listing_amenity",
-    "R14": "amenities: servicios repetidos dentro del mismo anuncio eliminados",
-    "R15": "reviewer con varios nombres: se toma el de su reseña más reciente",
-    "R16": "review id repetido en varios anuncios: se guarda una sola reseña (filas fusionadas)",
+    "R01": "Double-encoded UTF-8 text (mojibake, e.g. 'GuipÃºzcoa' -> 'Guipúzcoa') repaired (cells)",
+    "R02": "Empty string stored as NULL (listings with at least one empty cell in a loaded column)",
+    "R03": "Price text '$1,234.00' converted to NUMERIC 1234.00",
+    "R04": "Booleans 't'/'f' converted to TRUE/FALSE (listings)",
+    "R05": "bathrooms_text split into bathrooms (number) and bathroom_shared (boolean)",
+    "R06": "Coordinates with more than 6 decimals rounded to 6 (about 0.1 m)",
+    "R07": "HTML <br /> tags replaced by ' | ' in license",
+    "R08": "HTML <br> tags replaced by a line break in description",
+    "R09": "HTML <br> tags replaced by a line break in reviews.comments",
+    "R10": "Host seniority 'years + months' converted to total months",
+    "R11": "listing with minimum_nights > maximum_nights: both set to NULL (it is unknown which one is wrong)",
+    "R12": "calendar day with minimum_nights > maximum_nights: both set to NULL",
+    "R13": "amenities: JSON list split into listing_amenity rows",
+    "R14": "amenities: amenity repeated within the same listing removed",
+    "R15": "reviewer with several names: the name of the most recent review is kept",
+    "R16": "review id repeated on several listings: one review stored (rows merged)",
 }
 
 BR_RE = re.compile(r"<br\s*/?>", re.I)
@@ -39,18 +39,18 @@ BR_RE = re.compile(r"<br\s*/?>", re.I)
 TABLES = ["province", "municipality", "host", "property_type", "listing", "amenity",
           "listing_amenity", "calendar_day", "reviewer", "review", "listing_review"]
 
-# Columnas a las que se aplica R01
+# Columns repaired by R01
 LISTING_TEXT_COLS = ["name", "description", "host_name", "host_location", "host_about",
                      "neighbourhood_cleansed", "neighbourhood_group_cleansed", "property_type"]
 
-# Columnas en las que se cuentan celdas vacías (R02)
+# Columns whose empty cells are counted by R02
 LISTING_NULLABLE_COLS = ["description", "host_location", "host_about", "price", "minimum_nights",
-                         "maximum_nights", "has_availability", "bathrooms_text", "bedrooms", "beds",
-                         "license", "source", "estimated_revenue_l365d", "review_scores_rating"]
+                         "maximum_nights", "has_availability", "bedrooms", "beds",
+                         "license", "estimated_revenue_l365d", "review_scores_rating"]
 
 
 def fix_mojibake(s: str | None) -> str | None:
-    """R01: repara texto UTF-8 leído como Latin-1."""
+    """R01: repairs UTF-8 text that was read as Latin-1."""
     if not s:
         return s
     try:
@@ -74,7 +74,7 @@ def to_bool(s: str | None) -> bool | None:
     if s is None:
         return None
     if s not in ("t", "f"):
-        raise ValueError(f"Booleano inesperado: {s!r}")
+        raise ValueError(f"Unexpected boolean: {s!r}")
     return s == "t"
 
 
@@ -93,12 +93,12 @@ def parse_price(s: str | None) -> Decimal | None:
     if s is None:
         return None
     if not re.fullmatch(r"\$\d{1,3}(,\d{3})*\.\d{2}", s):
-        raise ValueError(f"Precio con formato inesperado: {s!r}")
+        raise ValueError(f"Unexpected price format: {s!r}")
     return Decimal(s[1:].replace(",", ""))
 
 
 def parse_bathrooms(text: str | None) -> tuple[Decimal | None, bool | None]:
-    """'1.5 shared baths' -> (1.5, True); si no dice si es compartido, None."""
+    """'1.5 shared baths' -> (1.5, True); None when it does not say whether it is shared."""
     t = nz(text)
     if t is None:
         return None, None
@@ -116,7 +116,7 @@ def parse_bathrooms(text: str | None) -> tuple[Decimal | None, bool | None]:
     else:
         m = re.match(r"^(\d+(\.\d+)?)", low)
         if not m:
-            raise ValueError(f"bathrooms_text inesperado: {t!r}")
+            raise ValueError(f"Unexpected bathrooms_text: {t!r}")
         n = Decimal(m.group(1))
     return n, shared
 
@@ -133,7 +133,7 @@ def total_months(years: str, months: str) -> int:
 
 
 def csv_cell(v):
-    """None -> celda vacía, que COPY lee como NULL."""
+    """None -> empty cell, which COPY reads as NULL."""
     if v is None:
         return ""
     if v is True:
@@ -144,7 +144,7 @@ def csv_cell(v):
 
 
 def copy_rows(cur, table: str, columns: list[str], rows) -> int:
-    """COPY en bloques de 200.000 filas; devuelve cuántas se insertaron."""
+    """COPY in blocks of 200,000 rows; returns how many were inserted."""
     sql = f"COPY airbnb.{table} ({', '.join(columns)}) FROM STDIN WITH (FORMAT csv)"
     buf = io.StringIO()
     writer = csv.writer(buf, lineterminator="\n")
@@ -173,7 +173,7 @@ def read_csv(name: str):
 
 
 def load_geography(cur) -> dict[str, int]:
-    """Devuelve {municipio: id}."""
+    """Returns {municipality: id}."""
     rows = [(fix_mojibake(r["neighbourhood_group"]), fix_mojibake(r["neighbourhood"]))
             for r in read_csv("neighbourhoods")]
     prov_ids = {
@@ -243,21 +243,21 @@ def load_listings(cur, mun_ids: dict[str, int]) -> None:
             yield (int(r["id"]), int(r["host_id"]), mun_ids[r["neighbourhood_cleansed"]],
                    pt_ids[r["property_type"]], r["name"].strip(), desc,
                    round_coord(r["latitude"]), round_coord(r["longitude"]), r["room_type"],
-                   int(r["accommodates"]), baths, shared, nz(r["bathrooms_text"]),
+                   int(r["accommodates"]), baths, shared,
                    to_int(r["bedrooms"]), to_int(r["beds"]), price, mn, mx, to_bool(r["has_availability"]),
                    to_dec(r["review_scores_rating"]), to_dec(r["review_scores_accuracy"]),
                    to_dec(r["review_scores_cleanliness"]), to_dec(r["review_scores_checkin"]),
                    to_dec(r["review_scores_communication"]), to_dec(r["review_scores_location"]),
                    to_dec(r["review_scores_value"]), lic, to_int(r["estimated_occupancy_l365d"]),
-                   to_dec(r["estimated_revenue_l365d"]), nz(r["source"]), r["last_scraped"])
+                   to_dec(r["estimated_revenue_l365d"]), r["last_scraped"])
 
     n = copy_rows(cur, "listing", [
         "listing_id", "host_id", "municipality_id", "property_type_id", "name", "description",
         "latitude", "longitude", "room_type", "accommodates", "bathrooms", "bathroom_shared",
-        "bathrooms_text", "bedrooms", "beds", "price", "minimum_nights", "maximum_nights",
+        "bedrooms", "beds", "price", "minimum_nights", "maximum_nights",
         "has_availability", "score_rating", "score_accuracy", "score_cleanliness", "score_checkin",
         "score_communication", "score_location", "score_value", "license",
-        "estimated_occupancy_l365d", "estimated_revenue_l365d", "source", "last_scraped"], listing_rows())
+        "estimated_occupancy_l365d", "estimated_revenue_l365d", "last_scraped"], listing_rows())
 
     pairs, names = [], set()
     for r in raw:
@@ -293,7 +293,7 @@ def load_calendar(cur) -> None:
 
 
 def load_reviews(cur) -> None:
-    reviewers: dict[int, tuple[str, str]] = {}  # id -> (fecha, nombre) más reciente
+    reviewers: dict[int, tuple[str, str]] = {}  # id -> most recent (date, name)
     names_seen: dict[int, set] = {}
     reviews: dict[int, tuple] = {}
     links = []
@@ -329,14 +329,14 @@ def table_counts(cur) -> list[tuple[str, int]]:
 
 
 def write_report(counts: list[tuple[str, int]]) -> None:
-    lines = ["# Informe de limpieza (ETL)", "",
-             "_Generado automáticamente por `scripts/etl.py`._", "",
-             "## Reglas de limpieza y filas afectadas", "",
-             "| Regla | Descripción | Filas afectadas |", "|---|---|---|"]
+    lines = ["# Cleaning report (ETL)", "",
+             "_Generated by `scripts/etl.py`._", "",
+             "## Cleaning rules and rows affected", "",
+             "| Rule | Description | Rows affected |", "|---|---|---|"]
     for key, desc in RULES.items():
         desc = desc.replace("|", "\\|")
         lines.append(f"| {key} | {desc} | {stats.get(key, 0):,} |")
-    lines += ["", "## Filas cargadas por tabla", "", "| Tabla | Filas |", "|---|---|"]
+    lines += ["", "## Rows loaded per table", "", "| Table | Rows |", "|---|---|"]
     lines += [f"| {t} | {n:,} |" for t, n in counts]
     REPORT.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -349,32 +349,32 @@ def main() -> None:
         with conn.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM airbnb.listing")
             if cur.fetchone()[0] > 0:
-                raise RuntimeError("Las tablas ya tienen datos. Ejecuta antes: python scripts/create_schema.py")
-            print("Cargando (una sola transacción)...")
+                raise RuntimeError("The tables already contain data; run scripts/create_schema.py first")
+            print("Loading (single transaction)...")
             mun_ids = load_geography(cur)
             load_listings(cur, mun_ids)
             load_calendar(cur)
             load_reviews(cur)
             if simulate_error:
-                print("\n>>> SIMULACIÓN: insertamos una reseña de un anuncio que NO existe (viola la FOREIGN KEY)...")
+                print("\n>>> SIMULATION: inserting a review for a listing that does NOT exist (violates the FOREIGN KEY)...")
                 cur.execute("INSERT INTO airbnb.listing_review (listing_id, review_id) VALUES (-1, -1)")
             counts = table_counts(cur)
         conn.commit()
-        # Sin estadísticas tras la carga masiva los planes son muy lentos
+        # Without statistics after the bulk load, query plans are very slow
         conn.autocommit = True
         with conn.cursor() as cur:
             cur.execute("ANALYZE")
         write_report(counts)
-        print(f"\nCOMMIT correcto en {time.time()-t0:.0f}s. Informe: {REPORT.relative_to(ROOT)}")
+        print(f"\nCOMMIT done in {time.time()-t0:.0f}s. Report: {REPORT.relative_to(ROOT)}")
     except Exception as e:
         conn.rollback()
         print(f"\nERROR: {type(e).__name__}: {e}".rstrip())
-        print("ROLLBACK ejecutado. Comprobamos que no ha quedado nada cargado:")
+        print("ROLLBACK done. Checking that nothing was left loaded:")
         check = get_connection()
         try:
             with check.cursor() as cur:
                 for t, n in table_counts(cur):
-                    print(f"    {t:16} {n} filas")
+                    print(f"    {t:16} {n} rows")
         finally:
             check.close()
         sys.exit(1)

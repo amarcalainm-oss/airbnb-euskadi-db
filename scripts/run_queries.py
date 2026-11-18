@@ -43,10 +43,10 @@ def main() -> None:
                   "```sql", q["sql"], "```", "", "**Sample result:**", ""]
         lines += md_table(cols, rows)
         lines += [extra, f"**Why it is meaningful:** {q['why']}", "", f"_Execution time: {ms:.0f} ms_", ""]
-        print(f"  {q['id']}  {len(rows):>4} filas  {ms:7.0f} ms  {q['title']}")
+        print(f"  {q['id']}  {len(rows):>4} rows  {ms:7.0f} ms  {q['title']}")
     conn.close()
     OUT.write_text("\n".join(lines), encoding="utf-8")
-    print(f"Escrito {OUT.relative_to(ROOT)}")
+    print(f"Written {OUT.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

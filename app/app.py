@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from db import RAW_DIR, get_connection                               # noqa: E402
 from query_lib import load_queries, run_query, run_transaction_query  # noqa: E402
 
-# Plotly trata Decimal como categoría: NUMERIC llega como float
+# Plotly treats Decimal as a category, so NUMERIC is returned as float
 psycopg2.extensions.register_type(psycopg2.extensions.new_type(
     psycopg2.extensions.DECIMAL.values, "NUMERIC_FLOAT", lambda v, cur: None if v is None else float(v)))
 
@@ -25,7 +25,7 @@ ROOM_TYPES = ["Entire home/apt", "Private room", "Hotel room", "Shared room"]
 SERIES = ["#2a78d6", "#eb6834", "#1baf7a"]
 PRICE_RAMP = ["#86b6ef", "#5598e7", "#2a78d6", "#1c5cab", "#104281"]
 INK, INK_2, INK_3, GRID, PANEL = "#142430", "#52606a", "#87939a", "#e1e6e4", "#ffffff"
-# Álava es blanca: siempre lleva contorno pizarra para verse sobre blanco
+# Álava is white, so it always gets a dark outline to stay visible
 PROVINCE_COLOR = {"Vizcaya": "#d52b1e", "Guipúzcoa": "#009b48", "Álava": "#ffffff"}
 WHITE_PROVINCE = "Álava"
 SANS = "'Schibsted Grotesk', 'Segoe UI', Helvetica, Arial, sans-serif"
@@ -193,7 +193,7 @@ def connection():
 
 
 def conn_ok():
-    """Reabre la conexión si se ha cerrado."""
+    """Reopens the connection if it was closed."""
     c = connection()
     if c.closed:
         st.cache_resource.clear()
@@ -218,7 +218,7 @@ def lookup(sql: str) -> list:
 
 
 def reset_conn():
-    """Deshace la transacción abortada para que la conexión siga siendo usable."""
+    """Rolls back an aborted transaction so the connection stays usable."""
     try:
         c = connection()
         if not c.closed:
@@ -272,7 +272,7 @@ def empty(df) -> bool:
 
 
 def fix_text(s):
-    """Repara texto UTF-8 leído como Latin-1 (como la regla R01)."""
+    """Repairs UTF-8 text read as Latin-1 (same as rule R01)."""
     try:
         return s.encode("latin-1").decode("utf-8")
     except (UnicodeEncodeError, UnicodeDecodeError, AttributeError):
@@ -281,7 +281,7 @@ def fix_text(s):
 
 @st.cache_data
 def province_shapes() -> dict:
-    """Fronteras de municipios agrupadas por provincia; {} si falta el fichero."""
+    """Municipality boundaries grouped by province; {} if the file is missing."""
     path = RAW_DIR / "neighbourhoods.geojson"
     if not path.exists():
         return {}
@@ -362,7 +362,7 @@ except Exception as e:  # noqa: BLE001
 st.sidebar.markdown("<div class='side-h'>Filters</div>", unsafe_allow_html=True)
 province = st.sidebar.selectbox("Province", ["All provinces"] + PROVINCES)
 room = st.sidebar.selectbox("Room type", ["All room types"] + ROOM_TYPES)
-# None = sin filtro
+# None = no filter
 P = None if province == "All provinces" else province
 R = None if room == "All room types" else room
 st.sidebar.markdown("<div class='side-note'>Filters are passed to PostgreSQL as bound query parameters. "
@@ -419,7 +419,7 @@ with tab_map:
         min_reviews = st.slider("Minimum number of reviews", 0, 100, 0, key="q13r")
         df = show("Q13", province=P, room_type=R, min_reviews=min_reviews)
         if not empty(df):
-            # Filas ordenadas por quintil: cada banda toma su tono en orden
+            # Rows are ordered by quintile, so each band takes its shade in order
             fig = px.scatter_map(df, lat="latitude", lon="longitude", color="price_band",
                                  color_discrete_sequence=PRICE_RAMP, hover_name="listing",
                                  hover_data={"municipality": True, "room_type": True, "price": True,
@@ -487,7 +487,7 @@ with tab_demand:
             fig.update_layout(hovermode="x unified")
             plot(style(fig))
 
-    with panel("Q08", "Weekend versus weekday occupancy"):
+    with panel("Q08", "Weekend versus weekday unavailability"):
         c1, c2, c3 = st.columns(3)
         horizon_days = c1.slider("Horizon (days ahead)", 14, 365, 90, key="q08h")
         min_listings = c2.slider("Minimum listings per municipality", 10, 300, 30, key="q08m")

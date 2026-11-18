@@ -7,7 +7,7 @@ STEPS = ["create_database.py", "download_data.py", "load_staging.py", "run_profi
          "create_schema.py", "etl.py", "run_queries.py"]
 
 for step in STEPS:
-    print(f"\n===== {step} =====")
+    print(f"\n{step}")
     if subprocess.run([sys.executable, str(HERE / step)]).returncode != 0:
-        sys.exit(f"Falló {step}; se detiene el proceso.")
-print("\nTodo listo. Arranca la app con:  streamlit run app/app.py")
+        sys.exit(f"{step} failed; stopping.")
+print("\nDone. Start the app with: python -m streamlit run app/app.py")

@@ -7,7 +7,7 @@ DROP INDEX airbnb.idx_review_reviewer;
 EXPLAIN ANALYZE
 SELECT * FROM airbnb.review WHERE reviewer_id = 27989262;
 
-ROLLBACK;  -- DROP INDEX es transaccional: el índice vuelve
+ROLLBACK;  -- DROP INDEX is transactional: the index comes back
 
 BEGIN;
 EXPLAIN ANALYZE

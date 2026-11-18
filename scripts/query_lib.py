@@ -41,7 +41,7 @@ def run_query(conn, q: dict, params: dict | None = None):
 
 
 def run_transaction_query(conn, q: dict, params: dict | None = None, commit: bool = False):
-    """before, UPDATE y after en una transacción; ROLLBACK salvo commit=True."""
+    """before, UPDATE and after in one transaction; ROLLBACK unless commit=True."""
     p = merge_params(q, params)
     steps = q["steps"]
     try:

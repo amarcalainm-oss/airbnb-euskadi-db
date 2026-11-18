@@ -1,4 +1,4 @@
-"""Copia los CSV en bruto, todo como TEXT, al esquema staging."""
+"""Copies the raw CSV files, every column as TEXT, into the staging schema."""
 import csv
 import time
 
@@ -27,9 +27,9 @@ def main() -> None:
                         .format(sql.Identifier(name)).as_string(conn),
                         f,
                     )
-                print(f"  staging.{name:15} {cur.rowcount:>10,} filas  ({time.time()-t0:.1f}s)")
+                print(f"  staging.{name:15} {cur.rowcount:>10,} rows  ({time.time()-t0:.1f}s)")
         conn.commit()
-        print("Staging cargado.")
+        print("Staging loaded.")
     except Exception:
         conn.rollback()
         raise

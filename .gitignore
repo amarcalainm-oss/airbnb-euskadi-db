@@ -1,15 +1,13 @@
-# Datos en bruto: se descargan con scripts/download_data.py, no se suben
+# Raw data, downloaded by scripts/download_data.py
 data/
 *.csv
 *.csv.gz
-# Credenciales
 .env
-# Material del curso
 project_B_description.pdf
-# Python
 __pycache__/
 *.pyc
 .venv/
 .streamlit/secrets.toml
 .claude/
 report/
+CLAUDE.md

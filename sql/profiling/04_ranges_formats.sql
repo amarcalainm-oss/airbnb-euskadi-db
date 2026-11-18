@@ -1,7 +1,7 @@
--- @query Formato y rango de las fechas
-SELECT 'listings.last_scraped' AS columna,
-       COUNT(*) FILTER (WHERE last_scraped !~ '^\d{4}-\d{2}-\d{2}$') AS mal_formato,
-       MIN(last_scraped::date) AS minimo, MAX(last_scraped::date) AS maximo FROM staging.listings
+-- @query Format and range of dates
+SELECT 'listings.last_scraped' AS column_name,
+       COUNT(*) FILTER (WHERE last_scraped !~ '^\d{4}-\d{2}-\d{2}$') AS bad_format,
+       MIN(last_scraped::date) AS min_value, MAX(last_scraped::date) AS max_value FROM staging.listings
 UNION ALL
 SELECT 'listings.host_since',
        COUNT(*) FILTER (WHERE host_since !~ '^\d{4}-\d{2}-\d{2}$'),
@@ -23,22 +23,22 @@ SELECT 'reviews.date',
        COUNT(*) FILTER (WHERE date !~ '^\d{4}-\d{2}-\d{2}$'),
        MIN(date::date), MAX(date::date) FROM staging.reviews;
 
--- @query Formato del precio (texto con símbolo $ y comas de miles)
+-- @query Price format (text with a $ sign and thousands separators)
 SELECT CASE
-         WHEN price IS NULL OR price = ''           THEN '(vacío)'
-         WHEN price ~ '^\$\d{1,3}(,\d{3})*\.\d{2}$' THEN '$#,###.## (correcto)'
-         ELSE 'otro formato'
-       END AS formato,
-       COUNT(*) AS filas,
-       MIN(price) AS ejemplo
+         WHEN price IS NULL OR price = ''           THEN '(empty)'
+         WHEN price ~ '^\$\d{1,3}(,\d{3})*\.\d{2}$' THEN '$#,###.## (valid)'
+         ELSE 'other format'
+       END AS format,
+       COUNT(*) AS row_count,
+       MIN(price) AS example
 FROM staging.listings
-GROUP BY 1 ORDER BY filas DESC;
+GROUP BY 1 ORDER BY row_count DESC;
 
--- @query Rangos numéricos de listings
-SELECT 'price ($)' AS columna,
-       MIN(replace(substr(price, 2), ',', '')::numeric) AS minimo,
-       percentile_cont(0.5) WITHIN GROUP (ORDER BY replace(substr(price, 2), ',', '')::numeric) AS mediana,
-       MAX(replace(substr(price, 2), ',', '')::numeric) AS maximo
+-- @query Numeric ranges in listings
+SELECT 'price ($)' AS column_name,
+       MIN(replace(substr(price, 2), ',', '')::numeric) AS min_value,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY replace(substr(price, 2), ',', '')::numeric) AS median,
+       MAX(replace(substr(price, 2), ',', '')::numeric) AS max_value
 FROM staging.listings WHERE price <> ''
 UNION ALL SELECT 'latitude', MIN(latitude::numeric), percentile_cont(0.5) WITHIN GROUP (ORDER BY latitude::numeric), MAX(latitude::numeric) FROM staging.listings
 UNION ALL SELECT 'longitude', MIN(longitude::numeric), percentile_cont(0.5) WITHIN GROUP (ORDER BY longitude::numeric), MAX(longitude::numeric) FROM staging.listings
@@ -54,14 +54,14 @@ UNION ALL SELECT 'review_scores_rating', MIN(review_scores_rating::numeric), per
 UNION ALL SELECT 'estimated_revenue_l365d', MIN(estimated_revenue_l365d::numeric), percentile_cont(0.5) WITHIN GROUP (ORDER BY estimated_revenue_l365d::numeric), MAX(estimated_revenue_l365d::numeric) FROM staging.listings
 UNION ALL SELECT 'host_listings_count', MIN(host_listings_count::int), percentile_cont(0.5) WITHIN GROUP (ORDER BY host_listings_count::int), MAX(host_listings_count::int) FROM staging.listings;
 
--- @query Rangos numéricos de calendar
-SELECT 'minimum_nights' AS columna, MIN(minimum_nights::bigint) AS minimo, MAX(minimum_nights::bigint) AS maximo FROM staging.calendar
+-- @query Numeric ranges in calendar
+SELECT 'minimum_nights' AS column_name, MIN(minimum_nights::bigint) AS min_value, MAX(minimum_nights::bigint) AS max_value FROM staging.calendar
 UNION ALL SELECT 'maximum_nights', MIN(maximum_nights::bigint), MAX(maximum_nights::bigint) FROM staging.calendar;
 
--- @query Formato de los porcentajes del anfitrión
-SELECT 'host_response_rate' AS columna, COUNT(*) FILTER (WHERE host_response_rate ~ '^\d{1,3}%$') AS formato_nn_pct,
-       COUNT(*) FILTER (WHERE host_response_rate IN ('N/A')) AS valor_NA,
-       COUNT(*) FILTER (WHERE host_response_rate IS NULL OR host_response_rate = '') AS vacios
+-- @query Format of the host percentage columns
+SELECT 'host_response_rate' AS column_name, COUNT(*) FILTER (WHERE host_response_rate ~ '^\d{1,3}%$') AS format_nn_pct,
+       COUNT(*) FILTER (WHERE host_response_rate IN ('N/A')) AS value_na,
+       COUNT(*) FILTER (WHERE host_response_rate IS NULL OR host_response_rate = '') AS empty
 FROM staging.listings
 UNION ALL
 SELECT 'host_acceptance_rate', COUNT(*) FILTER (WHERE host_acceptance_rate ~ '^\d{1,3}%$'),
@@ -69,8 +69,8 @@ SELECT 'host_acceptance_rate', COUNT(*) FILTER (WHERE host_acceptance_rate ~ '^\
        COUNT(*) FILTER (WHERE host_acceptance_rate IS NULL OR host_acceptance_rate = '')
 FROM staging.listings;
 
--- @query Valores de las columnas booleanas (se esperan 't' / 'f')
-SELECT 'listings.host_is_superhost' AS columna, host_is_superhost AS valor, COUNT(*) AS filas FROM staging.listings GROUP BY 2
+-- @query Values of the boolean columns ('t' / 'f' expected)
+SELECT 'listings.host_is_superhost' AS column_name, host_is_superhost AS value, COUNT(*) AS row_count FROM staging.listings GROUP BY 2
 UNION ALL SELECT 'listings.host_identity_verified', host_identity_verified, COUNT(*) FROM staging.listings GROUP BY 2
 UNION ALL SELECT 'listings.host_has_profile_pic', host_has_profile_pic, COUNT(*) FROM staging.listings GROUP BY 2
 UNION ALL SELECT 'listings.has_availability', has_availability, COUNT(*) FROM staging.listings GROUP BY 2

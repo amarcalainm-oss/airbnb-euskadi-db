@@ -21,7 +21,7 @@ RAW_DIR = ROOT / "data" / "raw"
 def download(remote: str, local_name: str, force: bool) -> None:
     target = RAW_DIR / local_name
     if target.exists() and not force:
-        print(f"  [ok]   {local_name} ya existe, se omite")
+        print(f"  [ok]   {local_name} already exists, skipped")
         return
     url = f"{BASE_URL}/{remote}"
     tmp = RAW_DIR / (Path(remote).name + ".part")
@@ -41,10 +41,10 @@ def download(remote: str, local_name: str, force: bool) -> None:
 def main() -> None:
     force = "--force" in sys.argv
     RAW_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"Descargando en {RAW_DIR}")
+    print(f"Downloading into {RAW_DIR}")
     for remote, local in FILES:
         download(remote, local, force)
-    print("Descarga terminada.")
+    print("Download finished.")
 
 
 if __name__ == "__main__":

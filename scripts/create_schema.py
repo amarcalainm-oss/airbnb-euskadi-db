@@ -4,6 +4,6 @@ conn = get_connection()
 try:
     run_sql_file(conn, SQL_DIR / "schema.sql")
     conn.commit()
-    print("Esquema 'airbnb' creado (tablas vacías, con todas las restricciones).")
+    print("Schema 'airbnb' created (empty tables with all constraints).")
 finally:
     conn.close()
